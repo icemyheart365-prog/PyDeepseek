@@ -5,8 +5,9 @@
 DeepSeek local-memory chat core (v10).
 
 All logic lives here; user-facing strings are looked up through translator.py and
-i18n/<lang>.json. Entry points are chat_v10.py (zh_cn) and chat_v10_EN_CA.py
-(en_ca), which simply call main(lang).
+i18n/<lang>.json. chat_v10.py is the only entry point: the UI language comes from
+--lang, then the value persisted in config.json, then the default. /settings can
+switch language and model at runtime; both are saved back to config.json.
 
 Standard-library only, except the optional `tokenizers` package used by the
 tokenizer/ package for exact token counting (falls back to a byte estimate when
@@ -39,6 +40,7 @@ Commands:
   /clear           Clear chat history after confirmation
   /stats           Show cumulative token usage
   /system          View/change the system prompt
+  /settings        Switch language or model (persisted to config.json)
   /help            Show help
   /exit            Exit
 """
@@ -94,6 +96,12 @@ MAX_FILE_BYTES = 128 * 1024
 MAX_TOTAL_ATTACHMENT_BYTES = 512 * 1024
 MAX_TOOL_ROUNDS = 8
 MAX_PROTOCOL_REPAIRS = 1
+
+# Models offered by /settings; any other name can still be typed manually.
+KNOWN_MODELS = ("deepseek-flash", "deepseek-v4-pro")
+# The manual-entry row follows the presets, so its index is derived, not fixed.
+MANUAL_MODEL_SENTINEL = "__manual__"
+EXIT_SETTINGS_INDEX = "0"
 MAX_TOOL_LOG_LINES = 5000
 TOOL_LOG_DIR = LIBRARY_DIR / "logs"
 TOOL_LOG_FILE = TOOL_LOG_DIR / "tool_calls.jsonl"
@@ -936,6 +944,111 @@ def print_help():
     )
 
 
+def _save_config(config):
+    """Persist config.json atomically, preserving every unrelated key."""
+    atomic_save_json(CONFIG_FILE, config)
+
+
+def _read_choice():
+    """Return the raw menu choice, or "" when the user cancels/leaves it blank."""
+    return input(t("settings_choose")).strip()
+
+
+def _menu_entries(entries, labels):
+    """Print a numbered menu and return the value at the chosen index, else None."""
+    for index, label in enumerate(labels, start=1):
+        print(t("settings_option_line", index=index, label=label))
+    print(t("settings_exit_option"))
+    raw = _read_choice()
+    if raw == "" or raw == EXIT_SETTINGS_INDEX:
+        return None
+    if not raw.isdigit() or not 1 <= int(raw) <= len(entries):
+        print(t("settings_invalid_choice"))
+        return None
+    return entries[int(raw) - 1]
+
+
+def _apply_language(config):
+    """Ask for a language; switch immediately and persist the choice."""
+    global t
+    codes = list(SUPPORTED_LANGS)
+    labels = [t(f"language_name_{code}") for code in codes]
+    print(t("settings_language_prompt"))
+    chosen = _menu_entries(codes, labels)
+    if chosen is None:
+        print(t("settings_unchanged"))
+        return False
+
+    config["language"] = chosen
+    try:
+        _save_config(config)
+    except OSError as exc:
+        print(t("settings_save_failed", exc=exc))
+        return False
+
+    t = Translator(chosen)
+    print(t("settings_language_saved", name=t(f"language_name_{chosen}")))
+    return True
+
+
+def _apply_model(config):
+    """Ask for a model; persist the choice for future sessions."""
+    entries = list(KNOWN_MODELS) + [MANUAL_MODEL_SENTINEL]
+    labels = []
+    for model in KNOWN_MODELS:
+        marker = " *" if model == config.get("model") else ""
+        labels.append(t("settings_model_option", model=model) + marker)
+    labels.append(t("settings_manual_option"))
+
+    print(t("settings_model_title"))
+    chosen = _menu_entries(entries, labels)
+    if chosen is None:
+        print(t("settings_unchanged"))
+        return False
+
+    if chosen == MANUAL_MODEL_SENTINEL:
+        name = input(t("settings_enter_model")).strip()
+        if not name:
+            print(t("settings_model_empty"))
+            return False
+        chosen = name
+
+    previous = config.get("model")
+    config["model"] = chosen
+    try:
+        _save_config(config)
+    except OSError as exc:
+        config["model"] = previous
+        print(t("settings_save_failed", exc=exc))
+        return False
+    print(t("settings_model_saved", model=chosen))
+    return True
+
+
+def handle_settings(config):
+    """/settings: switch language or model; both persist to config.json."""
+    current_lang = config.get("language") or t.lang
+    print(t("settings_title"))
+    print(t("settings_current_language",
+            lang=current_lang,
+            name=t(f"language_name_{current_lang}")))
+    print(t("settings_current_model", model=config.get("model", "")))
+    print()
+
+    sections = ["language", "model"]
+    labels = [t("settings_section_language"), t("settings_section_model")]
+    chosen = _menu_entries(sections, labels)
+    if chosen is None:
+        print(t("settings_unchanged"))
+        return config
+
+    if chosen == "language":
+        _apply_language(config)
+    else:
+        _apply_model(config)
+    return config
+
+
 def print_stats(memory):
     usage = memory["usage"]
     print(t("cumulative_token_usage"))
@@ -985,6 +1098,12 @@ def main(lang=None):
 
     try:
         config = load_config()
+        # Language precedence: --lang flag, then the persisted config.json value,
+        # then the entry script default.
+        if not args.lang:
+            stored = config.get("language")
+            if isinstance(stored, str) and stored in SUPPORTED_LANGS and stored != t.lang:
+                t = Translator(stored)
         active_memory_path = initialize_memories()
         memory = load_memory_file(active_memory_path)
         if memory is None:
@@ -1042,6 +1161,10 @@ def main(lang=None):
 
         if user_text == "/stats":
             print_stats(memory)
+            continue
+
+        if user_text == "/settings":
+            config = handle_settings(config)
             continue
 
         if user_text == "/files":
