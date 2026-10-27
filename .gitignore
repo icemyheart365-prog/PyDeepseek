@@ -1,0 +1,23 @@
+# Secrets
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Runtime output
+library/logs/
+*.swp
+*.swo
+*~
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
