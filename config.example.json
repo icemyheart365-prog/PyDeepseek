@@ -1,4 +1,8 @@
 {
+  // This is an example configuration file for the DeepSeek API.
+  // Please replace the placeholder values with your actual API key and any other necessary configuration settings.
+  // Make sure to keep this file secure and do not share your API key publicly.
+  // After updating the configuration, you can rename this file to config.json and use it in your application.
   "api_key": "your-api-key-here",
   "base_url": "https://api.deepseek.com",
   "model": "deepseek-flash"
