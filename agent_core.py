@@ -101,8 +101,16 @@ MAX_PROTOCOL_REPAIRS = 1
 # entry row can stay pinned at 9 as the list grows.
 KNOWN_MODELS = ("deepseek-flash", "deepseek-v4-pro")
 MANUAL_MODEL_INDEX = 9
+PRESET_MODEL_SLOTS = MANUAL_MODEL_INDEX - 1
 MANUAL_MODEL_SENTINEL = "__manual__"
 EXIT_SETTINGS_INDEX = "0"
+
+if len(KNOWN_MODELS) > PRESET_MODEL_SLOTS:
+    raise RuntimeError(
+        f"KNOWN_MODELS has {len(KNOWN_MODELS)} entries but only {PRESET_MODEL_SLOTS} slots "
+        f"are available before the manual entry at {MANUAL_MODEL_INDEX}. "
+        "Raise MANUAL_MODEL_INDEX or remove a preset."
+    )
 MAX_TOOL_LOG_LINES = 5000
 TOOL_LOG_DIR = LIBRARY_DIR / "logs"
 TOOL_LOG_FILE = TOOL_LOG_DIR / "tool_calls.jsonl"
