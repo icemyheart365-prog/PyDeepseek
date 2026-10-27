@@ -593,7 +593,10 @@ def load_command_definitions():
 
 def build_command_context(command_data):
     """Describe the local command interface and strict raw-JSON response contract."""
-    serialized = json.dumps(command_data, ensure_ascii=False, indent=2)
+    # Compact separators keep this reference payload small; it is resent every request.
+    serialized = json.dumps(
+        command_data, ensure_ascii=False, separators=(",", ":")
+    )
     return (
         "你正在通过本地 Python Agent 聊天程序响应用户。每次回复必须严格遵循协议："
         "只输出一个有效 JSON 对象，禁止 Markdown 代码围栏，禁止对象前后附加任何解释。"
