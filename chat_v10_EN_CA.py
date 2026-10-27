@@ -3,7 +3,9 @@
 
 """
 DeepSeek local-memory chat for A-Shell (v10).
-Standard-library only.
+Standard-library only, except the optional `tokenizers` package used by
+token_counter.py for local token counting (falls back to a byte estimate
+when it is not installed).
 
 Files:
   config.json
@@ -50,6 +52,10 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+from token_counter import token_counter, try_load_token_counter as _try_load_token_counter
+
+_TOKEN_COUNTER = _try_load_token_counter()
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -286,10 +292,19 @@ def handle_memory_command(command, active_path, memory):
         print(f"Invalid memory name: {exc}")
         return active_path, memory
 
-def estimate_tokens_from_text(text):
-    """Very rough estimate only; actual billing usage comes from the API response."""
-    # Chinese/mixed text varies widely. This estimate is deliberately labeled rough.
+def _count_tokens(text):
+    """Use the local DeepSeek tokenizer when available, else fall back to a byte estimate."""
+    if _TOKEN_COUNTER is not None:
+        try:
+            return _TOKEN_COUNTER(text)
+        except Exception:
+            pass
     return max(1, (len(text.encode("utf-8")) + 3) // 4)
+
+
+def estimate_tokens_from_text(text):
+    """Token count for the given text (precise when the local tokenizer loads)."""
+    return _count_tokens(text)
 
 
 def call_summary_api(config, memory, path):
@@ -355,7 +370,10 @@ def compact_memory(config, memory, active_path, keep=RECENT_MESSAGES_AFTER_COMPA
     print(f"  Current branch: {active_path.stem}")
     print(f"  History: {len(memory['messages'])} messages")
     print(f"  History text: {source_bytes:,} bytes")
-    print(f"  Rough input token estimate: ~{rough:,} (from byte count only; the error can be large)")
+    if _TOKEN_COUNTER is not None:
+        print(f"  Input tokens: ~{rough:,} (counted by the local tokenizer)")
+    else:
+        print(f"  Rough input token estimate: ~{rough:,} (tokenizer unavailable; byte count only)")
     print(f"  After compaction the most recent {recent_count} raw messages are kept and the summary covers the rest.")
     print("  Actual cost is based on the usage returned by the API; the compaction request itself also consumes tokens.")
     if not ask_yes_no("send the full current chat history to the AI for memory compaction"): 

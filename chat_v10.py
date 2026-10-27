@@ -3,7 +3,9 @@
 
 """
 DeepSeek local-memory chat for A-Shell (v10).
-Standard-library only.
+Standard-library only, except the optional `tokenizers` package used by
+token_counter.py for local token counting (falls back to a byte estimate
+when it is not installed).
 
 Files:
   config.json
@@ -50,6 +52,10 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+from token_counter import token_counter, try_load_token_counter as _try_load_token_counter
+
+_TOKEN_COUNTER = _try_load_token_counter()
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -286,10 +292,19 @@ def handle_memory_command(command, active_path, memory):
         print(f"无效的记忆名称：{exc}")
         return active_path, memory
 
-def estimate_tokens_from_text(text):
-    """Very rough estimate only; actual billing usage comes from the API response."""
-    # Chinese/mixed text varies widely. This estimate is deliberately labeled rough.
+def _count_tokens(text):
+    """Use the local DeepSeek tokenizer when available, else fall back to a byte estimate."""
+    if _TOKEN_COUNTER is not None:
+        try:
+            return _TOKEN_COUNTER(text)
+        except Exception:
+            pass
     return max(1, (len(text.encode("utf-8")) + 3) // 4)
+
+
+def estimate_tokens_from_text(text):
+    """Token count for the given text (precise when the local tokenizer loads)."""
+    return _count_tokens(text)
 
 
 def call_summary_api(config, memory, path):
@@ -355,7 +370,10 @@ def compact_memory(config, memory, active_path, keep=RECENT_MESSAGES_AFTER_COMPA
     print(f"  当前 Branch：{active_path.stem}")
     print(f"  历史消息：{len(memory['messages'])} 条")
     print(f"  历史正文：{source_bytes:,} 字节")
-    print(f"  粗略输入 Token 估算：约 {rough:,}（仅按字节估算，误差可能很大）")
+    if _TOKEN_COUNTER is not None:
+        print(f"  输入 Token：约 {rough:,}（本地 tokenizer 计数）")
+    else:
+        print(f"  输入 Token 估算：约 {rough:,}（tokenizer 不可用，按字节粗略估算）")
     print(f"  整理后计划保留最近 {recent_count} 条原始消息，其余由摘要承接。")
     print("  实际费用以 API 返回的 usage 为准；整理请求本身也会消耗 Token。")
     if not ask_yes_no("将当前完整聊天历史发送给 AI 进行记忆整理"): 

@@ -16,6 +16,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from token_counter import token_counter, try_load_token_counter as _try_load_token_counter
+
+_TOKEN_COUNTER = _try_load_token_counter()
+
 COMMANDS_FILE_NAME = "commands.json"
 BRIDGE_FILE_NAME = "command_library_bridge.py"
 OUTPUT_CONFIRM_BYTES = 4096
@@ -25,6 +29,16 @@ MAX_TOOL_ROUNDS = 8
 
 class DispatchError(Exception):
     pass
+
+
+def _count_tokens_from_bytes(data: bytes) -> int:
+    """Token count for raw output; falls back to the byte estimate if the tokenizer is unavailable."""
+    if _TOKEN_COUNTER is not None:
+        try:
+            return _TOKEN_COUNTER(data.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+    return (len(data) + 3) // 4
 
 
 def _load_definitions(project_dir: Path) -> tuple[dict, dict[str, dict]]:
@@ -244,7 +258,7 @@ def _invoke_web_tool(project_dir: Path, command: str, args: dict) -> dict:
     # Apply the same independent output-transmission gate used for local commands.
     encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     output_bytes = len(encoded)
-    estimated_tokens = (output_bytes + 3) // 4
+    estimated_tokens = _count_tokens_from_bytes(encoded)
     if output_bytes > MAX_CAPTURE_BYTES:
         return _safe_result(
             "output_limit_exceeded", command,
@@ -309,7 +323,7 @@ def dispatch_tool_call(request: dict, project_dir: Path) -> dict:
         stdout_raw = base64.b64decode(result.get("stdout_b64", ""), validate=True)
         stderr_raw = base64.b64decode(result.get("stderr_b64", ""), validate=True)
         total_bytes = len(stdout_raw) + len(stderr_raw)
-        estimated_tokens = (total_bytes + 3) // 4
+        estimated_tokens = _count_tokens_from_bytes(stdout_raw + stderr_raw)
         hard_cap = int(policy.get("global_policy", {}).get("max_capture_bytes", MAX_CAPTURE_BYTES))
         if total_bytes > hard_cap or result.get("status") == "output_limit_exceeded":
             return _safe_result("output_limit_exceeded", command, "输出超过本地硬限制；原始输出不会转发。", output_bytes=total_bytes, estimated_tokens=estimated_tokens, truncated=True, exit_code=result.get("exit_code"))
