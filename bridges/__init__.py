@@ -19,7 +19,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 PS_SCRIPT = Path(__file__).resolve().parent / "command_library.ps1"
-SH_SCRIPT = BASE_DIR / "command_library_v4.sh"
+SH_SCRIPT = Path(__file__).resolve().parent / "command_library_v4.sh"
 
 BRIDGE_ENV = "DEEPSEEK_BRIDGE"
 BACKENDS = ("python", "powershell", "posix")

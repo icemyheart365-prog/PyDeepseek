@@ -26,3 +26,6 @@ memories/*.json
 Thumbs.db
 .vscode/
 .idea/
+
+# Large directories that may sit inside library/ inadvertently
+library/**/__pycache__/

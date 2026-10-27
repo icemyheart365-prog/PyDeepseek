@@ -8,11 +8,17 @@ All logic lives here; user-facing strings are looked up through translator.py an
 i18n/<lang>.json. Entry points are chat_v10.py (zh_cn) and chat_v10_EN_CA.py
 (en_ca), which simply call main(lang).
 
-Standard-library only, except the optional `tokenizers` package used by
-token_counter.py for local token counting (falls back to a byte estimate
-when it is not installed).
+Standard-library only, except the optional `tokenizers` package used by the
+tokenizer/ package for exact token counting (falls back to a byte estimate when
+it is not installed).
 
-Files:
+Layout:
+  agent_core.py               this module: all chat logic
+  agent_dispatcher.py         validates and runs local tool calls
+  command_library_bridge.py   JSON/Base64 envelope around a backend
+  bridges/                    python (default), powershell, posix backends
+  tokenizer/                  token_counter + bundled vocabulary
+  translator.py, i18n/        UI strings per language
   config.json
   memories/default.json (created automatically; multiple named memories)
   memories/commands.json (prompt-visible command contract, reloaded for every API request)
@@ -59,7 +65,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from token_counter import token_counter, try_load_token_counter as _try_load_token_counter
+from tokenizer import token_counter, try_load_token_counter as _try_load_token_counter
 
 from translator import Translator, check_parity, SUPPORTED_LANGS, DEFAULT_LANG
 

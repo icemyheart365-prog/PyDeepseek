@@ -10,7 +10,10 @@ case "$SCRIPT_DIR" in
   /*) ;;
   *) SCRIPT_DIR="$(pwd)/$SCRIPT_DIR" ;;
 esac
-LIBRARY_ROOT="$SCRIPT_DIR/library"
+LIBRARY_ROOT="$SCRIPT_DIR/../library"
+# Canonicalize once: the containment checks below compare against this prefix,
+# and an unresolved ".." segment would make that comparison always fail.
+LIBRARY_ROOT=$(cd "$LIBRARY_ROOT" 2>/dev/null && pwd -P) || LIBRARY_ROOT="$SCRIPT_DIR/../library"
 
 error() {
   echo "ERROR: $2" >&2

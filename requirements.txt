@@ -1,1 +1,9 @@
-tokenizers>=0.23
+# Runtime dependency for exact token counting (tokenizer/).
+#
+# The application runs fine without it: token counts fall back to a byte-based
+# estimate. Install it to get accurate /stats and /memory compact cost previews.
+tokenizers>=0.20
+
+# Optional. Only needed by tokenizer/deepseek_tokenizer.py, a manual sanity check
+# of the bundled vocabulary. The chat application does not use it.
+# transformers

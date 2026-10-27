@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+# Windows and POSIX launchers keep their own line endings.
+*.ps1 text eol=crlf
+*.sh  text eol=lf
+
+# Large model assets must never be line-ending normalized or diffed as text.
+tokenizer/tokenizer.json binary
+*.png binary
+*.jpg binary

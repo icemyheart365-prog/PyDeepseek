@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from token_counter import token_counter, try_load_token_counter as _try_load_token_counter
+from tokenizer import token_counter, try_load_token_counter as _try_load_token_counter
 
 _TOKEN_COUNTER = _try_load_token_counter()
 
