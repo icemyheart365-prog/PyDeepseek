@@ -997,6 +997,10 @@ def _apply_language(config):
         print(t("settings_unchanged"))
         return False
 
+    if not ask_yes_no(t("settings_confirm_language", name=t(f"language_name_{chosen}"))):
+        print(t("settings_cancelled"))
+        return False
+
     config["language"] = chosen
     try:
         _save_config(config)
@@ -1031,6 +1035,10 @@ def _apply_model(config):
             print(t("settings_model_empty"))
             return False
         chosen = name
+
+    if not ask_yes_no(t("settings_confirm_model", model=chosen)):
+        print(t("settings_cancelled"))
+        return False
 
     previous = config.get("model")
     config["model"] = chosen
