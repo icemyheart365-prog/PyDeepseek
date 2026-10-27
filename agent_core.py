@@ -97,9 +97,10 @@ MAX_TOTAL_ATTACHMENT_BYTES = 512 * 1024
 MAX_TOOL_ROUNDS = 8
 MAX_PROTOCOL_REPAIRS = 1
 
-# Models offered by /settings; any other name can still be typed manually.
+# Models offered by /settings. Slots 1-8 are reserved for presets so the manual
+# entry row can stay pinned at 9 as the list grows.
 KNOWN_MODELS = ("deepseek-flash", "deepseek-v4-pro")
-# The manual-entry row follows the presets, so its index is derived, not fixed.
+MANUAL_MODEL_INDEX = 9
 MANUAL_MODEL_SENTINEL = "__manual__"
 EXIT_SETTINGS_INDEX = "0"
 MAX_TOOL_LOG_LINES = 5000
@@ -955,26 +956,35 @@ def _read_choice():
 
 
 def _menu_entries(entries, labels):
-    """Print a numbered menu and return the value at the chosen index, else None."""
-    for index, label in enumerate(labels, start=1):
+    """Print a numbered menu and return the value at the chosen index, else None.
+
+    entries/labels are (index, value) and (index, label) pairs so a row can keep a
+    fixed number (the manual model entry stays at 9) while presets grow.
+    """
+    for index, label in labels:
         print(t("settings_option_line", index=index, label=label))
     print(t("settings_exit_option"))
     raw = _read_choice()
     if raw == "" or raw == EXIT_SETTINGS_INDEX:
         return None
-    if not raw.isdigit() or not 1 <= int(raw) <= len(entries):
+    if not raw.isdigit():
         print(t("settings_invalid_choice"))
         return None
-    return entries[int(raw) - 1]
+    for index, value in entries:
+        if str(index) == raw:
+            return value
+    print(t("settings_invalid_choice"))
+    return None
 
 
 def _apply_language(config):
     """Ask for a language; switch immediately and persist the choice."""
     global t
     codes = list(SUPPORTED_LANGS)
-    labels = [t(f"language_name_{code}") for code in codes]
+    entries = list(enumerate(codes, start=1))
+    labels = [(index, t(f"language_name_{code}")) for index, code in entries]
     print(t("settings_language_prompt"))
-    chosen = _menu_entries(codes, labels)
+    chosen = _menu_entries(entries, labels)
     if chosen is None:
         print(t("settings_unchanged"))
         return False
@@ -993,12 +1003,13 @@ def _apply_language(config):
 
 def _apply_model(config):
     """Ask for a model; persist the choice for future sessions."""
-    entries = list(KNOWN_MODELS) + [MANUAL_MODEL_SENTINEL]
+    entries = list(enumerate(KNOWN_MODELS, start=1))
+    entries.append((MANUAL_MODEL_INDEX, MANUAL_MODEL_SENTINEL))
     labels = []
-    for model in KNOWN_MODELS:
+    for index, model in entries[:-1]:
         marker = " *" if model == config.get("model") else ""
-        labels.append(t("settings_model_option", model=model) + marker)
-    labels.append(t("settings_manual_option"))
+        labels.append((index, t("settings_model_option", model=model) + marker))
+    labels.append((MANUAL_MODEL_INDEX, t("settings_manual_option")))
 
     print(t("settings_model_title"))
     chosen = _menu_entries(entries, labels)
@@ -1036,8 +1047,9 @@ def handle_settings(config):
     print()
 
     sections = ["language", "model"]
-    labels = [t("settings_section_language"), t("settings_section_model")]
-    chosen = _menu_entries(sections, labels)
+    entries = list(enumerate(sections, start=1))
+    labels = [(1, t("settings_section_language")), (2, t("settings_section_model"))]
+    chosen = _menu_entries(entries, labels)
     if chosen is None:
         print(t("settings_unchanged"))
         return config
