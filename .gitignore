@@ -16,6 +16,11 @@ library/logs/
 *.swo
 *~
 
+# Local chat history: real conversation data, never belongs in the repo
+memories/*.json
+!memories/commands.json
+!memories/commands.impl.json
+
 # OS / editor
 .DS_Store
 Thumbs.db
