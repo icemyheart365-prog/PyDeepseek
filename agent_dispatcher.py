@@ -3,7 +3,8 @@
 """Local command dispatcher for the Deepseek Agent.
 
 The Agent may request only a named command plus structured arguments.
-This module validates the request against memories/commands.json, asks for
+This module validates the request against memories/commands.json (the prompt-visible
+contract; implementation details live in memories/commands.impl.json), asks for
 execution confirmation when required, invokes the tested bridge, and applies
 an independent output-transmission gate.
 """
@@ -21,6 +22,7 @@ from token_counter import token_counter, try_load_token_counter as _try_load_tok
 _TOKEN_COUNTER = _try_load_token_counter()
 
 COMMANDS_FILE_NAME = "commands.json"
+COMMANDS_IMPL_FILE_NAME = "commands.impl.json"
 BRIDGE_FILE_NAME = "command_library_bridge.py"
 OUTPUT_CONFIRM_BYTES = 4096
 MAX_CAPTURE_BYTES = 1_048_576
@@ -41,6 +43,30 @@ def _count_tokens_from_bytes(data: bytes) -> int:
     return (len(data) + 3) // 4
 
 
+def _check_impl_consistency(project_dir: Path, definitions: dict) -> None:
+    """Hard-fail when commands.impl.json and commands.json describe different command sets."""
+    path = project_dir / "memories" / COMMANDS_IMPL_FILE_NAME
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DispatchError(f"无法读取 {COMMANDS_IMPL_FILE_NAME}：{exc}") from exc
+    entries = data.get("commands") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise DispatchError(f"{COMMANDS_IMPL_FILE_NAME} 格式错误：需要 commands 数组。")
+    impl_names = {item["name"] for item in entries if isinstance(item, dict) and isinstance(item.get("name"), str)}
+    only_contract = set(definitions) - impl_names
+    only_impl = impl_names - set(definitions)
+    if only_contract or only_impl:
+        raise DispatchError(
+            "命令定义不一致："
+            f"仅存在于 commands.json：{sorted(only_contract) or '无'}；"
+            f"仅存在于 {COMMANDS_IMPL_FILE_NAME}：{sorted(only_impl) or '无'}。"
+            "请同步两份文件后再试。"
+        )
+
+
 def _load_definitions(project_dir: Path) -> tuple[dict, dict[str, dict]]:
     path = project_dir / "memories" / COMMANDS_FILE_NAME
     try:
@@ -55,7 +81,36 @@ def _load_definitions(project_dir: Path) -> tuple[dict, dict[str, dict]]:
     for item in data["commands"]:
         if isinstance(item, dict) and isinstance(item.get("name"), str):
             commands[item["name"]] = item
+    _check_impl_consistency(project_dir, commands)
     return data, commands
+
+
+def _describe_param(name, spec):
+    """Render one parameter's contract for error messages (teaching-style hints)."""
+    if not isinstance(spec, dict):
+        return name
+    bits = [name]
+    bits.append(f"type={spec.get('type', 'any')}")
+    if "enum" in spec:
+        bits.append("allowed=" + ",".join(map(str, spec["enum"])))
+    if "items_enum" in spec:
+        bits.append("items=" + ",".join(map(str, spec["items_enum"])))
+    if "default" in spec:
+        bits.append(f"default={json.dumps(spec['default'], ensure_ascii=False)}")
+    if spec.get("required", False):
+        bits.append("required")
+    detail = ""
+    if isinstance(spec.get("description"), str) and spec["description"].strip():
+        detail = "  " + spec["description"].strip()
+    return "(" + "; ".join(bits) + ")" + detail
+
+
+def _unknown_param_error(unknown, schema):
+    """Explain rejected parameters and show the whole contract so the model can retry once."""
+    lines = [f"参数无效：{', '.join(sorted(unknown))} 不在该命令的定义中。"]
+    for name, spec in schema.items():
+        lines.append("  - " + _describe_param(name, spec))
+    return "\n".join(lines)
 
 
 def _validate_args(definition: dict, supplied: Any) -> dict:
@@ -66,7 +121,7 @@ def _validate_args(definition: dict, supplied: Any) -> dict:
         raise DispatchError("命令参数定义格式错误。")
     unknown = set(supplied) - set(schema)
     if unknown:
-        raise DispatchError("未知参数：" + ", ".join(sorted(unknown)))
+        raise DispatchError(_unknown_param_error(unknown, schema))
     args = {}
     for name, spec in schema.items():
         if not isinstance(spec, dict):
@@ -76,7 +131,7 @@ def _validate_args(definition: dict, supplied: Any) -> dict:
         elif "default" in spec:
             value = spec["default"]
         elif spec.get("required", False):
-            raise DispatchError(f"缺少必需参数：{name}")
+            raise DispatchError(f"缺少必需参数：{name}\n  - " + _describe_param(name, spec))
         else:
             continue
 
@@ -95,9 +150,15 @@ def _validate_args(definition: dict, supplied: Any) -> dict:
                 raise DispatchError(f"参数 {name} 必须是数组。")
             allowed = spec.get("items_enum")
             if allowed and any(v not in allowed for v in value):
-                raise DispatchError(f"参数 {name} 包含不支持的值。")
+                raise DispatchError(
+                    f"参数 {name} 包含不支持的值；允许：" + ", ".join(map(str, allowed))
+                )
         if "enum" in spec and value not in spec["enum"]:
-            raise DispatchError(f"参数 {name} 必须是以下值之一：{', '.join(map(str, spec['enum']))}")
+            raise DispatchError(
+                f"参数 {name} 的值 {json.dumps(value, ensure_ascii=False)} 无效；允许："
+                + ", ".join(map(str, spec["enum"]))
+                + f"（默认：{json.dumps(spec.get('default'), ensure_ascii=False)}）"
+            )
         if isinstance(value, int) and not isinstance(value, bool):
             if "minimum" in spec and value < spec["minimum"]:
                 raise DispatchError(f"参数 {name} 小于允许的最小值。")

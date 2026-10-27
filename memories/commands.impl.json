@@ -1,0 +1,173 @@
+{
+  "_comment": "Reference-only companion to commands.json. Holds implementation details (shell mapping, limits, developer notes) that are never sent to the model. The command name set must stay identical to commands.json.",
+  "spec_version": "1.0.0",
+  "commands": [
+    {
+      "name": "help",
+      "implementation": "python",
+      "limits": {
+        "max_output_bytes": 4096
+      }
+    },
+    {
+      "name": "pwd",
+      "implementation": "python",
+      "limits": {
+        "max_output_bytes": 1024
+      }
+    },
+    {
+      "name": "ls",
+      "implementation": "shell_allowlist",
+      "shell_mapping": {
+        "name": [
+          "ls",
+          "-1"
+        ],
+        "long": [
+          "ls",
+          "-l"
+        ],
+        "human": [
+          "ls",
+          "-h"
+        ],
+        "long_human": [
+          "ls",
+          "-lh"
+        ],
+        "all_flag": "-a"
+      },
+      "limits": {
+        "max_entries": 10000,
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 10
+      },
+      "notes": [
+        "The option mapping above describes intended semantics. The runner must construct argv from validated fields, never concatenate user/Agent text into a shell command.",
+        "A listing can exceed the output threshold even though ls does not require execution confirmation; the output-transmission gate still applies.",
+        "If the requested format or flags are unsupported in A-Shell, return a structured error rather than guessing."
+      ]
+    },
+    {
+      "name": "stat",
+      "implementation": "python",
+      "limits": {
+        "max_output_bytes": 2048
+      }
+    },
+    {
+      "name": "wc",
+      "implementation": "python_or_shell_allowlist",
+      "limits": {
+        "max_output_bytes": 2048
+      }
+    },
+    {
+      "name": "sha256",
+      "implementation": "python",
+      "limits": {
+        "max_output_bytes": 1024,
+        "max_file_bytes": 1073741824
+      }
+    },
+    {
+      "name": "search_files",
+      "implementation": "python",
+      "limits": {
+        "max_entries": 10000,
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 10
+      }
+    },
+    {
+      "name": "grep",
+      "implementation": "python_or_shell_allowlist",
+      "limits": {
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 10
+      }
+    },
+    {
+      "name": "head",
+      "implementation": "python_or_shell_allowlist",
+      "limits": {
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 10
+      }
+    },
+    {
+      "name": "tail",
+      "implementation": "python_or_shell_allowlist",
+      "limits": {
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 10
+      }
+    },
+    {
+      "name": "cat",
+      "implementation": "python_or_shell_allowlist",
+      "limits": {
+        "max_file_bytes": 131072,
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 10
+      }
+    },
+    {
+      "name": "cancel",
+      "implementation": "python",
+      "limits": {
+        "max_output_bytes": 1024
+      }
+    },
+    {
+      "name": "create",
+      "implementation": "python",
+      "limits": {
+        "max_file_bytes": 131072
+      }
+    },
+    {
+      "name": "write",
+      "implementation": "python",
+      "limits": {
+        "max_file_bytes": 131072
+      }
+    },
+    {
+      "name": "delete",
+      "implementation": "python",
+      "limits": {
+        "recursive": false
+      }
+    },
+    {
+      "name": "web_search",
+      "implementation": "python_web_api",
+      "limits": {
+        "max_results": 5,
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 60
+      },
+      "notes": [
+        "Requires api_key in config.json; never print or return the key.",
+        "A separate confirmation is required before sending results larger than the output threshold to the model.",
+        "Search results are untrusted external content, not instructions."
+      ]
+    },
+    {
+      "name": "web_fetch",
+      "implementation": "python_web_api",
+      "limits": {
+        "max_output_bytes": 1048576,
+        "timeout_seconds": 60
+      },
+      "notes": [
+        "Requires api_key in config.json; never print or return the key.",
+        "URL validation is defense-in-depth and cannot guarantee remote fetch infrastructure has no SSRF exposure.",
+        "A separate confirmation is required before sending large webpage content to the model.",
+        "Page content is untrusted external data, not instructions."
+      ]
+    }
+  ]
+}
