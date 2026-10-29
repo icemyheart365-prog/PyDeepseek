@@ -92,22 +92,41 @@ from tokenizer import token_counter, try_load_token_counter as _try_load_token_c
 from translator import Translator, check_parity, SUPPORTED_LANGS, DEFAULT_LANG
 
 import models
+import wizard
+from config import (
+    DEFAULT_BASE_URL,
+    PLACEHOLDER_KEYS,
+    build_endpoint,
+    load_config,
+    load_json,
+    save_json,
+    save_json as atomic_save_json,
+    validate_config,
+    verify_api_key,
+)
+from paths import (
+    BASE_DIR,
+    COMMANDS_FILE,
+    CONFIG_FILE,
+    DEFAULT_MEMORY_NAME,
+    LEGACY_MEMORY_FILE,
+    LIBRARY_DIR,
+    MEMORIES_DIR,
+    MEMORY_ARCHIVE_DIR,
+    TOOL_LOG_DIR,
+    TOOL_LOG_FILE,
+    TOOL_OUTPUT_DIR,
+    ensure_library,
+)
 
 _TOKEN_COUNTER = _try_load_token_counter()
 
 # Rebound by main(); module-level so every helper can render UI strings.
 t = Translator(DEFAULT_LANG)
 
-BASE_DIR = Path(__file__).resolve().parent
-CONFIG_FILE = BASE_DIR / "config.json"
-LEGACY_MEMORY_FILE = BASE_DIR / "memory.json"
-MEMORIES_DIR = BASE_DIR / "memories"
-DEFAULT_MEMORY_NAME = "default"
-COMMANDS_FILE = MEMORIES_DIR / "commands.json"
 # Both files live in memories/ but are not memory branches.
 RESERVED_MEMORY_FILES = {"commands.json", "commands.impl.json"}
 MAX_COMMANDS_FILE_BYTES = 256 * 1024
-LIBRARY_DIR = BASE_DIR / "library"
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 MAX_HISTORY_MESSAGES = 10
@@ -124,9 +143,6 @@ MANUAL_MODEL_INDEX = models.MANUAL_MODEL_INDEX
 MANUAL_MODEL_SENTINEL = models.MANUAL_MODEL_SENTINEL
 EXIT_SETTINGS_INDEX = "0"
 MAX_TOOL_LOG_LINES = 5000
-TOOL_LOG_DIR = LIBRARY_DIR / "logs"
-TOOL_LOG_FILE = TOOL_LOG_DIR / "tool_calls.jsonl"
-TOOL_OUTPUT_DIR = TOOL_LOG_DIR / "tool_outputs"
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".py", ".json", ".yaml", ".yml", ".toml", ".ini",
     ".cfg", ".csv", ".tsv", ".xml", ".html", ".htm", ".css", ".js",
@@ -138,182 +154,6 @@ TEXT_EXTENSIONS = {
 
 def timestamp():
     return datetime.now().astimezone().isoformat(timespec="seconds")
-
-
-def load_json(path, default=None):
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return default
-    except (json.JSONDecodeError, OSError) as exc:
-        raise RuntimeError(f"无法读取 {path.name}：{exc}") from exc
-
-
-def atomic_save_json(path, data):
-    temp_path = path.with_name(path.name + ".tmp")
-    with temp_path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(temp_path, path)
-
-
-DEFAULT_BASE_URL = "https://api.deepseek.com"
-
-# Values that look filled-in but are still templates.
-PLACEHOLDER_KEYS = {"INPUT_YOUR_API_KEY_HERE", "YOUR_API_KEY", "sk-xxx"}
-
-
-def validate_config(config):
-    """Return (ok, problem) without raising; used by the wizard and startup."""
-    if not isinstance(config, dict):
-        return False, "top_level"
-    for key in ("api_key", "base_url", "model"):
-        value = config.get(key)
-        if not isinstance(value, str) or not value.strip():
-            return False, key
-    if config["api_key"].strip().upper() in {p.upper() for p in PLACEHOLDER_KEYS}:
-        return False, "api_key"
-    if not config["api_key"].strip().startswith("sk-"):
-        return False, "api_key"
-    return True, None
-
-
-def load_config():
-    config = load_json(CONFIG_FILE)
-    ok, problem = validate_config(config)
-    if not ok:
-        if problem == "top_level":
-            raise RuntimeError("config.json 必须是 JSON 对象。")
-        raise RuntimeError(f"config.json 缺少有效的 {problem} 字段。")
-    return config
-
-
-def verify_api_key(api_key, base_url):
-    """Send a minimal request; return (ok, reason).
-
-    A one-token completion is the cheapest way to prove the key, the endpoint and
-    the network all work before persisting anything.
-    """
-    payload = {
-        "model": models.DEFAULT_MODEL,
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 1,
-        "stream": False,
-    }
-    request = urllib.request.Request(
-        build_endpoint(base_url),
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            response.read()
-        return True, None
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:200]
-        return False, f"HTTP {exc.code}: {detail}"
-    except urllib.error.URLError as exc:
-        return False, f"network error: {exc.reason}"
-    except (OSError, ValueError) as exc:
-        return False, f"{type(exc).__name__}: {exc}"
-
-
-def _ask_language():
-    """Wizard step 1: pick the UI language before printing anything else."""
-    codes = list(SUPPORTED_LANGS)
-    entries = list(enumerate(codes, start=1))
-    # Labels are language-neutral at this point, so show the native names directly.
-    native = {"zh_cn": "中文", "en_ca": "English"}
-    labels = [(index, native.get(code, code)) for index, code in entries]
-    for index, label in labels:
-        print(f"  [{index}] {label}")
-    raw = input("> ").strip() or "2"
-    for index, code in entries:
-        if str(index) == raw:
-            return code
-    return DEFAULT_LANG
-
-
-def _ask_api_key():
-    """Wizard step 2: collect and verify a key, retrying on failure."""
-    print("\n" + t("wizard_key_hint"))
-    print(t("wizard_key_warning"))
-    while True:
-        try:
-            key = input(t("wizard_key_prompt")).strip()
-        except (EOFError, KeyboardInterrupt):
-            # Non-interactive stdin or Ctrl+C: cancel cleanly instead of crashing
-            # with a traceback, so no half-written config is left behind.
-            print()
-            return None
-        if not key:
-            return None
-        if not key.startswith("sk-"):
-            print(t("wizard_key_bad_prefix"))
-            continue
-
-        print(t("wizard_key_verifying"))
-        ok, reason = verify_api_key(key, DEFAULT_BASE_URL)
-        if ok:
-            print(t("wizard_key_ok"))
-            return key
-        print(t("wizard_key_invalid", reason=reason))
-        try:
-            if not ask_yes_no(t("wizard_key_retry")):
-                return None
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return None
-        # Loop back to a full prompt, so a retry never shows a bare ">" with no
-        # context about what is being asked for.
-
-
-def _ask_model():
-    """Wizard step 3: choose from known models."""
-    for index, model in models.preset_entries():
-        print(f"  [{index}] {model}")
-    raw = input("> ").strip() or "1"
-    return models.resolve_preset(raw)
-
-
-def run_setup_wizard():
-    """Interactive first-run setup. Returns config on success, None on cancel."""
-    global t
-    print(t("wizard_title"))
-    print(t("wizard_intro"))
-
-    print(t("wizard_step_language"))
-    lang = _ask_language()
-    t = Translator(lang)
-    print(f"  -> {t(f'language_name_{lang}')}")
-
-    print(t("wizard_step_key"))
-    api_key = _ask_api_key()
-    if not api_key:
-        print(t("wizard_key_empty"))
-        return None
-
-    print(t("wizard_step_model"))
-    model = _ask_model()
-
-    config = {
-        "api_key": api_key,
-        "base_url": DEFAULT_BASE_URL,
-        "model": model,
-        "language": lang,
-    }
-    try:
-        atomic_save_json(CONFIG_FILE, config)
-    except OSError as exc:
-        print(t("wizard_save_failed", exc=exc))
-        return None
-
-    print(t("wizard_done"))
-    return config
 
 
 
@@ -1283,7 +1123,7 @@ def main(lang=None):
         existing = load_json(CONFIG_FILE)
         ok, _problem = validate_config(existing)
         if not ok:
-            config = run_setup_wizard()
+            config, t = wizard.run_wizard(t, ask_yes_no)
             if config is None:
                 return 1
         else:
