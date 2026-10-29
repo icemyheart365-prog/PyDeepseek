@@ -98,6 +98,8 @@ model).
 ```
 chat_v10.py               entry point
 agent_core.py             all chat logic
+models.py                 model catalogue and menu slots
+ui/                       terminal rendering and input primitives
 agent_dispatcher.py       tool-call validation and execution
 command_library_bridge.py JSON envelope over a backend
 bridges/                  python (default), powershell, posix
@@ -105,12 +107,13 @@ tokenizer/                token counter + bundled vocabulary
 i18n/                     UI strings per language
 memories/                 command contract and memory branches
 library/                  file attachment area
+tools/                    developer scripts (notes.ps1)
 ```
 
 ## Platform notes
 
 - **Python 3.10+** required
-- On Windows, `notes.ps1` may need
+- On Windows, `tools/notes.ps1` may need
   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 - The POSIX backend needs a shell; the Python backend works everywhere and is
   the default

@@ -8,7 +8,8 @@
     switch would remove your notes. This script always restores the working copy
     afterwards.
 
-    Run it from the repository root on any branch.
+    Works from any directory: the repository root is located from this script's
+    own position, not from the current location.
 
 .PARAMETER Action
     pull    Fetch the latest notes from origin and write it to disk.
@@ -16,8 +17,8 @@
     status  Show whether the local copy matches origin/notes (default).
 
 .EXAMPLE
-    .\notes.ps1 pull      # at school, before editing
-    .\notes.ps1 push      # at home, after editing
+    .\tools\notes.ps1 pull      # at school, before editing
+    .\tools\notes.ps1 push      # at home, after editing
 #>
 [CmdletBinding()]
 param(
@@ -27,6 +28,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Run against the repository root regardless of the caller's working directory:
+# git commands and the HANDOFF.md path are all relative to the root.
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location -LiteralPath $RepoRoot
 
 $NotesBranch = 'notes'
 $NotesFile = 'HANDOFF.md'
@@ -87,7 +93,7 @@ switch ($Action) {
             $remoteHash = (& git rev-parse --verify --quiet "origin/${NotesBranch}:${NotesFile}").Trim()
             if ($remoteHash -and $localHash -ne $remoteHash) {
                 Write-Host "Refusing to pull: $NotesFile has local changes." -ForegroundColor Yellow
-                Write-Host "  Run '.\notes.ps1 push' first, or move the file aside to discard it." -ForegroundColor Yellow
+                Write-Host "  Run '.\tools\notes.ps1 push' first, or move the file aside to discard it." -ForegroundColor Yellow
                 return
             }
         }
@@ -121,7 +127,7 @@ switch ($Action) {
             $behind = (& git rev-list --count "HEAD..origin/${NotesBranch}").Trim()
             if ($behind -ne '0') {
                 Write-Host "Refusing to push: origin/$NotesBranch has $behind commit(s) you do not have." -ForegroundColor Yellow
-                Write-Host "  Run '.\notes.ps1 pull' first, merge by hand, then push." -ForegroundColor Yellow
+                Write-Host "  Run '.\tools\notes.ps1 pull' first, merge by hand, then push." -ForegroundColor Yellow
                 return
             }
 
@@ -148,7 +154,7 @@ switch ($Action) {
             Write-Host "File   : $NotesFile ($((Get-Item $NotesFile).Length) bytes)"
         }
         else {
-            Write-Host "File   : missing (run: .\notes.ps1 pull)" -ForegroundColor Yellow
+            Write-Host "File   : missing (run: .\tools\notes.ps1 pull)" -ForegroundColor Yellow
         }
 
         & git fetch origin $NotesBranch --quiet 2>$null | Out-Null
