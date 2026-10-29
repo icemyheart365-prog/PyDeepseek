@@ -1,0 +1,113 @@
+{
+  "json_array": {
+    "error_message": "模型响应必须是 JSON 对象。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "json_string": {
+    "error_message": "模型响应必须是 JSON 对象。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "markdown_fenced": {
+    "ok": true,
+    "result": {
+      "text": "hi",
+      "type": "output"
+    }
+  },
+  "not_json": {
+    "error_message": "模型没有返回有效 JSON 对象（第 1 行，第 1 列）。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "output_empty_text": {
+    "ok": true,
+    "result": {
+      "text": "",
+      "type": "output"
+    }
+  },
+  "output_extra_field": {
+    "error_message": "output 格式错误：必须且只能包含 type 与字符串 text。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "output_minimal": {
+    "ok": true,
+    "result": {
+      "text": "hello",
+      "type": "output"
+    }
+  },
+  "output_not_object": {
+    "error_message": "output 格式错误：必须且只能包含 type 与字符串 text。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "output_unicode": {
+    "ok": true,
+    "result": {
+      "text": "你好，世界",
+      "type": "output"
+    }
+  },
+  "tool_call_arguments_not_object": {
+    "error_message": "tool_call 的 arguments 必须是 JSON 对象。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "tool_call_minimal": {
+    "ok": true,
+    "result": {
+      "arguments": {},
+      "command": "ls",
+      "reason": "listing",
+      "type": "tool_call"
+    }
+  },
+  "tool_call_missing_command": {
+    "error_message": "tool_call 缺少有效 command。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "tool_call_missing_reason": {
+    "ok": true,
+    "result": {
+      "arguments": {},
+      "command": "ls",
+      "type": "tool_call"
+    }
+  },
+  "tool_call_reason_not_string": {
+    "error_message": "tool_call 的 reason 必须是字符串。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "tool_call_unknown_field": {
+    "error_message": "tool_call 包含协议未定义的字段。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "tool_call_with_args": {
+    "ok": true,
+    "result": {
+      "arguments": {
+        "path": "a.txt"
+      },
+      "command": "cat",
+      "reason": "read",
+      "type": "tool_call"
+    }
+  },
+  "trailing_text": {
+    "error_message": "模型没有返回有效 JSON 对象（第 1 行，第 31 列）。",
+    "error_type": "ValueError",
+    "ok": false
+  },
+  "unknown_type": {
+    "error_message": "响应 type 必须为 tool_call 或 output。",
+    "error_type": "ValueError",
+    "ok": false
+  }
+}
