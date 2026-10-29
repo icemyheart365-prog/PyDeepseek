@@ -1,12 +1,17 @@
 """First-run setup wizard.
 
-Collects the three settings the app cannot start without: UI language, API key
-and default model, then writes config.json.
+Collects the settings the app cannot start without: UI language, API key and
+default model, then writes config.json.
 
 The wizard owns no global state. The translator is passed in and returned
 through a small holder, because step 1 changes the language and every later
 prompt must use the new one. Callers rebind their own translator to
 ``holder["t"]`` when the wizard returns.
+
+Step 1 is skipped when ``lang`` is given: a language forced on the command line
+is already the answer to that question, and asking again would let the user
+contradict the flag they just typed. The forced language is still written to
+config.json, so a later run without ``--lang`` stays consistent.
 """
 from __future__ import annotations
 
@@ -17,6 +22,11 @@ from translator import DEFAULT_LANG, SUPPORTED_LANGS, Translator
 
 # Native names, shown before any language has been chosen.
 NATIVE_LANGUAGE_NAMES = {"zh_cn": "中文", "en_ca": "English"}
+
+
+def _step_total(forced):
+    """Number of steps the user actually sees, for the "[n/total]" prefix."""
+    return 2 if forced else 3
 
 
 def _ask_language():
@@ -77,34 +87,48 @@ def _ask_model():
     return models.resolve_preset(raw)
 
 
-def run_wizard(tr, confirm):
+def run_wizard(tr, confirm, lang=None):
     """Interactive first-run setup.
 
-    Returns ``(config, translator)``: the translator may have changed if the user
-    picked a different language at step 1. Returns ``(None, tr)`` when cancelled.
+    ``lang`` forces the UI language and skips the language step; pass ``None``
+    to ask. Returns ``(config, translator)``: the translator may have changed if
+    the user picked a different language at step 1. Returns ``(None, tr)`` when
+    cancelled.
     """
+    forced = lang in SUPPORTED_LANGS
+    total = _step_total(forced)
+    if forced:
+        # The caller already resolved the language; adopt it before the first
+        # line is printed so the whole wizard renders in it.
+        tr = Translator(lang)
+
     print(tr("wizard_title"))
     print(tr("wizard_intro"))
 
-    print(tr("wizard_step_language"))
-    lang = _ask_language()
-    tr = Translator(lang)
-    print(f"  -> {tr(f'language_name_{lang}')}")
+    if forced:
+        print(tr("wizard_language_forced",
+                 name=tr(f"language_name_{lang}")))
+        chosen = lang
+    else:
+        print(tr(f"wizard_step_language_{total}"))
+        chosen = _ask_language()
+        tr = Translator(chosen)
+        print(f"  -> {tr(f'language_name_{chosen}')}")
 
-    print(tr("wizard_step_key"))
+    print(tr(f"wizard_step_key_{total}"))
     api_key = _ask_api_key(tr, confirm)
     if not api_key:
         print(tr("wizard_key_empty"))
         return None, tr
 
-    print(tr("wizard_step_model"))
+    print(tr(f"wizard_step_model_{total}"))
     model = _ask_model()
 
     config = {
         "api_key": api_key,
         "base_url": DEFAULT_BASE_URL,
         "model": model,
-        "language": lang,
+        "language": chosen,
     }
     try:
         save_json(CONFIG_FILE, config)

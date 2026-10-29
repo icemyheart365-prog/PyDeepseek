@@ -100,6 +100,8 @@
   "settings_title": "\n设置：",
   "settings_unchanged": "设置未变更。",
   "startup_failed_exc": "启动失败：{exc}",
+  "startup_memory_file_empty": "记忆文件为空，未继续启动以免覆盖数据。",
+  "startup_missing_file": "缺少 {name}；工具调用功能无法启动。",
   "summary_length_len_summary_encode_utf": "  摘要长度：{arg0} 字节",
   "summary_none": "（无）",
   "summary_system_prompt": "你是本地聊天记忆整理器。请把提供的历史整理成简洁、可供未来对话使用的中文记忆。保留稳定事实、用户明确偏好、项目/版本/技术决策、未完成任务和重要约束。区分已确认事实与不确定推断；不要编造，不要保留寒暄、重复玩笑或无用的逐轮内容。保留重要的路径、命令、文件名、版本号和明确数字。不要声称你修改了文件。只输出摘要正文，不要输出代码围栏或前言。",
@@ -140,9 +142,6 @@
   "wizard_key_verifying": "正在验证 Key…",
   "wizard_key_warning": "Key 只显示一次，请当场保存。",
   "wizard_save_failed": "写入 config.json 失败：{exc}",
-  "wizard_step_key": "\n[2/3] 输入 DeepSeek API Key：",
-  "wizard_step_language": "\n[1/3] 选择界面语言：",
-  "wizard_step_model": "\n[3/3] 选择默认模型：",
   "wizard_title": "\n=== 首次使用向导 ===",
   "you": "\n你：",
   "memory_name_error_separator": "记忆名称只能是单个名称，不能包含路径分隔符。",
@@ -181,5 +180,11 @@
   "tool_log_bad_limit": "limit 必须是 1 到 50 的整数。",
   "tool_log_read_failed": "无法读取工具日志：{exc_type}",
   "tool_log_bad_args": "tool_log 参数只允许 call_id 和 limit。",
-  "tool_log_bad_call_id": "call_id 格式无效。"
+  "tool_log_bad_call_id": "call_id 格式无效。",
+  "wizard_language_forced": "界面语言已由 --lang 指定：{name}",
+  "wizard_step_language_3": "\n[1/3] 选择界面语言：",
+  "wizard_step_key_3": "\n[2/3] 输入 DeepSeek API Key：",
+  "wizard_step_model_3": "\n[3/3] 选择默认模型：",
+  "wizard_step_key_2": "\n[1/2] 输入 DeepSeek API Key：",
+  "wizard_step_model_2": "\n[2/2] 选择默认模型："
 }

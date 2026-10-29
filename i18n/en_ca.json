@@ -100,6 +100,8 @@
   "settings_title": "\nSettings:",
   "settings_unchanged": "Settings unchanged.",
   "startup_failed_exc": "Startup failed: {exc}",
+  "startup_memory_file_empty": "The memory file is empty; refusing to start so it is not overwritten.",
+  "startup_missing_file": "Missing {name}; tool calls cannot start.",
   "summary_length_len_summary_encode_utf": "  Summary length: {arg0} bytes",
   "summary_none": "(none)",
   "summary_system_prompt": "You are a local chat memory compactor. Summarize the provided history into a concise memory usable in future conversations. Preserve stable facts, explicit user preferences, project/version/technical decisions, unfinished tasks and important constraints. Distinguish confirmed facts from uncertain inferences; do not invent anything, and drop small talk, repeated jokes and useless turn-by-turn content. Keep important paths, commands, file names, version numbers and explicit figures. Do not claim that you modified files. Output only the summary body, with no code fences and no preamble.",
@@ -140,9 +142,6 @@
   "wizard_key_verifying": "Verifying the key...",
   "wizard_key_warning": "The key is shown only once; save it now.",
   "wizard_save_failed": "Failed to write config.json: {exc}",
-  "wizard_step_key": "\n[2/3] Enter your DeepSeek API key:",
-  "wizard_step_language": "\n[1/3] Choose a UI language:",
-  "wizard_step_model": "\n[3/3] Choose the default model:",
   "wizard_title": "\n=== First-time setup ===",
   "you": "\nYou: ",
   "memory_name_error_separator": "A memory name must be a single name and cannot contain path separators.",
@@ -181,5 +180,11 @@
   "tool_log_bad_limit": "limit must be an integer from 1 to 50.",
   "tool_log_read_failed": "Could not read the tool log: {exc_type}",
   "tool_log_bad_args": "tool_log accepts only call_id and limit.",
-  "tool_log_bad_call_id": "Malformed call_id."
+  "tool_log_bad_call_id": "Malformed call_id.",
+  "wizard_language_forced": "UI language set by --lang: {name}",
+  "wizard_step_language_3": "\n[1/3] Choose the UI language:",
+  "wizard_step_key_3": "\n[2/3] Enter your DeepSeek API key:",
+  "wizard_step_model_3": "\n[3/3] Choose the default model:",
+  "wizard_step_key_2": "\n[1/2] Enter your DeepSeek API key:",
+  "wizard_step_model_2": "\n[2/2] Choose the default model:"
 }

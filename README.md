@@ -64,7 +64,6 @@ Type a message and press Enter. Slash commands:
 | `/memory` | List or switch memory branches |
 | `/memory add NAME` | Create a branch |
 | `/memory compact` | Let the AI summarize history |
-| `/file NAME` | Attach files from `library/` |
 | `/files` | List `library/` |
 | `/pwd` | Show the current memory branch |
 | `/stats` | Cumulative token usage |
@@ -78,6 +77,16 @@ Command-line flags:
 python chat_v10.py --lang en_ca      # override the saved language
 python chat_v10.py --max-history 20  # raw messages sent to the API
 ```
+
+The interface language is resolved in this order:
+
+1. `--lang` on the command line
+2. the `language` value in `config.json`
+3. `en_ca`
+
+When `--lang` is given the first-run wizard skips its language step, since the
+flag has already answered it. `/settings` changes the saved language, and the
+change takes effect immediately without a restart.
 
 ## Safety model
 
@@ -97,7 +106,9 @@ model).
 
 ```
 chat_v10.py               entry point
-agent_core.py             all chat logic
+repl.py                   interactive shell: flags, banner, slash commands
+agent_core.py             chat logic: memories, compacting, command contract
+api.py                    request transport and protocol prompts
 models.py                 model catalogue and menu slots
 ui/                       terminal rendering and input primitives
 agent_dispatcher.py       tool-call validation and execution

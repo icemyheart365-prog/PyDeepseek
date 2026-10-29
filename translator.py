@@ -14,7 +14,12 @@ from pathlib import Path
 
 I18N_DIR = Path(__file__).resolve().parent / "i18n"
 SUPPORTED_LANGS = ("zh_cn", "en_ca")
+# Reference catalog for check_parity() and the per-key fallback. It is also the
+# language the app falls back to when --lang is absent and config.json names no
+# supported language, so it must stay a complete translation of every key.
 DEFAULT_LANG = "zh_cn"
+# Last-resort UI language when neither --lang nor config.json has a usable value.
+FALLBACK_LANG = "en_ca"
 
 _cache: dict[str, dict[str, str]] = {}
 
