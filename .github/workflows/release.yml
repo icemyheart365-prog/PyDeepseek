@@ -1,0 +1,91 @@
+name: Release
+
+# Builds a source archive and opens a draft Release when a semantic version tag
+# (x.y.z, no v prefix) is pushed.
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build source archive
+        id: archive
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # git archive ships tracked files only, so config.json, HANDOFF.md and
+          # memories/*.json never reach a release. config.example.json is the
+          # template users copy.
+          NAME="PyDeepseek-${TAG}-source"
+          mkdir -p dist
+          git archive --format=zip --prefix="${NAME}/" -o "dist/${NAME}.zip" "${TAG}"
+          {
+            echo "name=${NAME}"
+            echo "sha256=$(sha256sum "dist/${NAME}.zip" | cut -d' ' -f1)"
+            echo "size=$(stat -c%s "dist/${NAME}.zip")"
+            echo "files=$(git ls-tree -r --name-only "${TAG}" | wc -l)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify archive contents
+        run: |
+          set -euo pipefail
+          NAME="${{ steps.archive.outputs.name }}"
+          LISTING=$(unzip -Z1 "dist/${NAME}.zip")
+
+          # Local-only files must never be published.
+          for banned in config.json HANDOFF.md memories/default.json; do
+            if printf '%s\n' "$LISTING" | grep -qx "${NAME}/${banned}"; then
+              echo "::error::Archive unexpectedly contains ${banned}"
+              exit 1
+            fi
+          done
+
+          # The template must be present, otherwise the app cannot be configured.
+          if ! printf '%s\n' "$LISTING" | grep -qx "${NAME}/config.example.json"; then
+            echo "::error::Archive is missing config.example.json"
+            exit 1
+          fi
+
+          echo "Archive OK: $(printf '%s\n' "$LISTING" | wc -l) entries."
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          ARCHIVE_NAME: ${{ steps.archive.outputs.name }}
+          ARCHIVE_SHA: ${{ steps.archive.outputs.sha256 }}
+          ARCHIVE_SIZE: ${{ steps.archive.outputs.size }}
+          FILE_COUNT: ${{ steps.archive.outputs.files }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<EOF
+          Source snapshot of \`${TAG}\`.
+
+          - Files: ${FILE_COUNT} (tracked only)
+          - Archive: \`${ARCHIVE_NAME}.zip\` (${ARCHIVE_SIZE} bytes)
+          - SHA-256: \`${ARCHIVE_SHA}\`
+
+          ## Setup
+
+          1. Copy \`config.example.json\` to \`config.json\`.
+          2. Fill in your DeepSeek \`api_key\`.
+          3. Optionally \`pip install -r requirements.txt\` for exact token counting.
+          4. Run \`python chat_v10.py\`.
+          EOF
+          gh release create "${TAG}" "dist/${ARCHIVE_NAME}.zip" \
+            --draft \
+            --title "${TAG}" \
+            --notes-file notes.md \
+            --verify-tag
