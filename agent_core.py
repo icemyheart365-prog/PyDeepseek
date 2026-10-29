@@ -15,6 +15,8 @@ it is not installed).
 
 Layout:
   agent_core.py               this module: all chat logic
+  ui/                         terminal rendering and input primitives
+  models.py                   model catalogue and slot layout
   agent_dispatcher.py         validates and runs local tool calls
   command_library_bridge.py   JSON/Base64 envelope around a backend
   bridges/                    python (default), powershell, posix backends
@@ -45,15 +47,33 @@ Commands:
   /exit            Exit
 """
 
+from ui import common as ui_common
+
+
 def ask_yes_no(action):
-    """Ask a consistent yes/no question. Default is No; accepts y/yes and n/no case-insensitively."""
-    while True:
-        answer = input(t("do_you_want_to_action_y", action=action)).strip().casefold()
-        if answer in ("y", "yes"):
-            return True
-        if answer in ("", "n", "no"):
-            return False
-        print(t("please_enter_y_yes_or_n"))
+    """Ask a consistent yes/no question. Default is No; accepts y/yes and n/no case-insensitively.
+
+    Kept as the app-core-side entry point so existing call sites stay unchanged.
+    The prompt loop itself lives in ui.common, where it is shared with anything
+    else that needs to read a confirmation.
+    """
+    prompt = t("do_you_want_to_action_y", action=action)
+    return ui_common.ask_choice(
+        prompt,
+        _YES_NO_ACCEPT,
+        default=False,
+        on_invalid=lambda: print(t("please_enter_y_yes_or_n")),
+    )
+
+
+def _build_yes_no_accept():
+    """Map every accepted answer onto its boolean result."""
+    accept = {answer: True for answer in ui_common.YES}
+    accept.update({answer: False for answer in ui_common.NO})
+    return accept
+
+
+_YES_NO_ACCEPT = _build_yes_no_accept()
 
 import fnmatch
 import hashlib
