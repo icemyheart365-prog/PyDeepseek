@@ -38,3 +38,6 @@ Thumbs.db
 # Large directories that may sit inside library/ inadvertently
 library/**/__pycache__/
 library
+
+# tmp
+tmp/

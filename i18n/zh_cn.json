@@ -147,7 +147,7 @@
   "wizard_key_invalid": "✗ Key 验证失败：{reason}",
   "wizard_key_ok": "✓ Key 有效。",
   "wizard_key_prompt": "API Key（留空取消）：",
-  "wizard_key_retry": "是否重试？",
+  "wizard_key_retry": "重试输入 Key",
   "wizard_key_verifying": "正在验证 Key…",
   "wizard_key_warning": "Key 只显示一次，请当场保存。",
   "wizard_save_failed": "写入 config.json 失败：{exc}",

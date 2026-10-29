@@ -231,7 +231,13 @@ def _ask_api_key():
     print("\n" + t("wizard_key_hint"))
     print(t("wizard_key_warning"))
     while True:
-        key = input(t("wizard_key_prompt")).strip()
+        try:
+            key = input(t("wizard_key_prompt")).strip()
+        except (EOFError, KeyboardInterrupt):
+            # Non-interactive stdin or Ctrl+C: cancel cleanly instead of crashing
+            # with a traceback, so no half-written config is left behind.
+            print()
+            return None
         if not key:
             return None
         if not key.startswith("sk-"):
@@ -244,8 +250,14 @@ def _ask_api_key():
             print(t("wizard_key_ok"))
             return key
         print(t("wizard_key_invalid", reason=reason))
-        if not ask_yes_no(t("wizard_key_retry")):
+        try:
+            if not ask_yes_no(t("wizard_key_retry")):
+                return None
+        except (EOFError, KeyboardInterrupt):
+            print()
             return None
+        # Loop back to a full prompt, so a retry never shows a bare ">" with no
+        # context about what is being asked for.
 
 
 def _ask_model():
