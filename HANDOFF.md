@@ -314,10 +314,133 @@ $env:DEEPSEEK_BRIDGE = "powershell"    # 默认 python
 
 ---
 
-## 10. 一句话总结
+## 10. 笔记同步（notes 分支）
+
+`HANDOFF.md` 在 `main` 上被 `.gitignore` 忽略，但**在 `notes` 分支上被跟踪**。这样笔记可以跟着 git 在家/学校之间走，又不会污染 `main`。
+
+### 10.1 为什么需要脚本
+
+切分支时 git 会删除"目标分支没有的已跟踪文件"。直接从 `notes` 切回 `main`，`HANDOFF.md` 会**从磁盘消失**。而且：
+
+- `git show` 经过 PowerShell 管道时按控制台代码页解码，**中文会变乱码**
+- 切到 `notes` 会用分支版本**覆盖工作区的编辑**，push 前必须先备份
+
+`notes.ps1` 封装了这三个坑。
+
+### 10.2 用法
+
+```powershell
+.\notes.ps1 status   # 本地与 origin/notes 是否一致（默认）
+.\notes.ps1 pull     # 到学校后先拉取
+.\notes.ps1 push     # 改完笔记后推送
+```
+
+脚本可以留在 `main` 上（已跟踪），它会自动切分支再切回来。
+
+### 10.3 实现要点（改脚本时别踩回去）
+
+| 问题 | 做法 |
+|---|---|
+| 切分支删文件 | `Exit-Notes` 里用 `git show` 把内容写回磁盘 |
+| 中文乱码 | 用 `cmd /c "git show ... > file"` 做**字节级重定向**；PowerShell 管道和 `Start-Process -RedirectStandardOutput` 都会转码 |
+| push 丢编辑 | 切分支前 `Copy-Item` 备份，到分支上再还原 |
+| 误判差异 | 比较 `git hash-object` 而非文本内容，免疫 CRLF 和编码差异 |
+| git 警告变异常 | `Invoke-Git` 只捕获 stdout，不合并 stderr |
+
+### 10.4 执行策略
+
+Windows 默认禁止运行 `.ps1`。三种解法：
+
+```powershell
+# 临时（只影响本次）
+powershell -ExecutionPolicy Bypass -File notes.ps1 push
+
+# 当前用户永久（推荐）
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+---
+
+## 11. 未来展望：首次启动向导
+
+**目标**：`python chat_v10.py` 第一次运行时，引导用户完成三项配置，而不是直接报"config.json 缺少有效的 api_key"。
+
+### 11.1 期望流程
+
+```
+没有 config.json
+      ↓
+[1] 选择语言（先问，因为后面全用它显示）
+      ↓
+[2] 输入 API Key（带获取方式提示 + 格式校验）
+      ↓
+[3] 选择模型（deepseek-flash / deepseek-v4-pro）
+      ↓
+写入 config.json，进入对话
+```
+
+**顺序很重要**：语言必须第一个问，否则后面的提示词无法本地化。
+
+### 11.2 关键设计
+
+| 点 | 说明 |
+|---|---|
+| 默认语言 | **英文**（国际惯例，且用户可能来自任何地区） |
+| Key 校验 | 写入前发一次极短请求（`max_tokens=1`）验证，失败则提示重试而不是写入坏配置 |
+| Key 掩码 | 输入时不回显，或显示 `sk-****` |
+| 已有配置 | `config.json` 存在且有效 → 跳过向导，不打扰老用户 |
+| 可跳过 | 允许稍后手动填，但要给出明确提示 |
+| 幂等 | 中途 Ctrl+C 不留下半写状态（用 `atomic_save_json`，已有） |
+
+### 11.3 与 /settings 的关系
+
+向导和 `/settings` 复用同一套函数：
+
+- `_apply_language` / `_apply_model` 已有
+- 需要抽出 `prompt_for_api_key()`，向导和将来的 `/settings apikey` 都能用
+- 向导本质是"首次检测失败时自动调用一遍 `handle_settings`"
+
+### 11.4 影响的文件
+
+- `agent_core.py`：`main()` 启动阶段加检测分支
+- `i18n/*.json`：新增向导文案（约 15 个 key）
+- `README.md`：必须写清 key 获取步骤（见 11.5）
+
+---
+
+## 12. 未来展望：README 补全
+
+现在 [README.md](README.md) 只有两行，几乎没信息量。目标内容：
+
+### 12.1 必须包含
+
+1. **一句话简介** —— 本地运行的 DeepSeek 客户端，工具调用由本地调度器把关
+2. **获取 API Key 的详细步骤**
+   - 打开 <https://platform.deepseek.com/api_keys>
+   - 注册 / 登录
+   - 点「创建 API Key」
+   - 复制 `sk-` 开头的字符串（**只显示一次**，务必当场保存）
+   - 前往「充值」页面确认余额（新账号可能没有赠送额度）
+3. **快速开始**（三条命令）
+4. **功能概览** —— `/settings`、记忆分支、工具调用、双语界面
+5. **安全说明** —— 模型不能直接执行任意命令，所有操作经白名单校验 + 用户确认
+6. **许可证** —— MIT
+
+### 12.2 加分项
+
+- 截图或终端演示（GIF 更好）
+- 常见问题：`api_key` 填了但报 401 / PowerShell 执行策略 / tokenizer 未安装
+- 架构简述（一张图说明 模型 → JSON → 调度器 → 后端）
+- 与官方插件的差异对比
+
+### 12.3 注意
+
+README 是 `main` 上的跟踪文件，**推送即公开**。写作时不要贴真实 key、个人路径或对话内容。
+
+---
+
+## 13. 一句话总结
 
 这是一个**把模型当成不可信 JSON 生成器**的本地 Agent：所有能力通过白名单命令暴露，所有参数严格校验，所有副作用需用户确认。省 token 是靠**把实现细节从 prompt 里拿出去**，而不是削弱安全。
 
 <!-- sync test marker -->
-
-<!-- push-test -->
