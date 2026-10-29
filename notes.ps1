@@ -79,6 +79,19 @@ function Exit-Notes {
 
 switch ($Action) {
     'pull' {
+        # Never clobber uncommitted edits: a pull silently discarding local work is
+        # exactly how notes get lost.
+        if (Test-Path $NotesFile) {
+            $localHash = (& git hash-object $NotesFile).Trim()
+            & git fetch origin $NotesBranch --quiet 2>$null | Out-Null
+            $remoteHash = (& git rev-parse --verify --quiet "origin/${NotesBranch}:${NotesFile}").Trim()
+            if ($remoteHash -and $localHash -ne $remoteHash) {
+                Write-Host "Refusing to pull: $NotesFile has local changes." -ForegroundColor Yellow
+                Write-Host "  Run '.\notes.ps1 push' first, or move the file aside to discard it." -ForegroundColor Yellow
+                return
+            }
+        }
+
         $original = Enter-Notes
         try {
             Invoke-Git fetch origin $NotesBranch | Out-Null
