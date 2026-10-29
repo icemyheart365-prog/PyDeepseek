@@ -24,6 +24,11 @@ memories/*.json
 !memories/commands.json
 !memories/commands.impl.json
 
+# DSH sandbox repair artifacts (one-off, never belong in the repo)
+acl-backup-*.json
+acl-backup-*.json.ps1
+acl-report-*.jsonl
+
 # OS / editor
 .DS_Store
 Thumbs.db
@@ -32,3 +37,4 @@ Thumbs.db
 
 # Large directories that may sit inside library/ inadvertently
 library/**/__pycache__/
+library
