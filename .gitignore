@@ -1,6 +1,9 @@
 # Secrets
 config.json
 
+# Local handoff notes (personal context, not project source)
+HANDOFF.md
+
 # Python
 __pycache__/
 *.py[cod]
