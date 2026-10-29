@@ -41,3 +41,11 @@ library
 
 # tmp
 tmp/
+
+# Developer tooling under review: audits, baseline recorder/checker and the
+# recorded fixtures. Tracked on a separate branch for now, ignored on main.
+tools/audit_i18n_keys.py
+tools/audit_translations.py
+tools/record_baseline.py
+tools/check_baseline.py
+tests/
