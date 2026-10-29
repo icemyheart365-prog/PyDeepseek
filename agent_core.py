@@ -48,6 +48,7 @@ Commands:
 """
 
 from ui import common as ui_common
+from ui import attachments_ui as ui_attachments
 
 
 def ask_yes_no(action):
@@ -93,6 +94,19 @@ from translator import Translator, check_parity, SUPPORTED_LANGS, DEFAULT_LANG
 
 import models
 import wizard
+# Aliased because 'memory' is a ubiquitous local variable name in this module.
+import memory as memory_store
+from attachments import (
+    ATTACHMENT_CLOSE,
+    ATTACHMENT_DEFAULT_INSTRUCTION,
+    ATTACHMENT_FILE_HEADER,
+    ATTACHMENT_OPEN,
+    AttachmentError,
+    AttachmentNotFound,
+    format_attachment_message,
+    read_attachments,
+    resolve_library_pattern,
+)
 from config import (
     DEFAULT_BASE_URL,
     PLACEHOLDER_KEYS,
@@ -156,103 +170,8 @@ def timestamp():
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-
-def new_memory():
-    return {
-        "version": 4,
-        "created_at": timestamp(),
-        "updated_at": timestamp(),
-        "system_prompt": DEFAULT_SYSTEM_PROMPT,
-        "summary": "",
-        "messages": [],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "requests": 0,
-        },
-    }
-
-
-def validate_memory(memory, path):
-    if not isinstance(memory, dict) or not isinstance(memory.get("messages"), list):
-        raise RuntimeError(t("memory_file_not_in_correct_format", name=path.name))
-    memory.setdefault("version", 4)
-    memory.setdefault("created_at", timestamp())
-    memory.setdefault("updated_at", timestamp())
-    memory.setdefault("system_prompt", DEFAULT_SYSTEM_PROMPT)
-    memory.setdefault("summary", "")
-    if not isinstance(memory["summary"], str):
-        memory["summary"] = ""
-    memory.setdefault("usage", {})
-    if not isinstance(memory["usage"], dict):
-        memory["usage"] = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens", "requests"):
-        if not isinstance(memory["usage"].get(key, 0), (int, float)):
-            memory["usage"][key] = 0
-        else:
-            memory["usage"].setdefault(key, 0)
-    memory["messages"] = [
-        item for item in memory["messages"]
-        if isinstance(item, dict)
-        and item.get("role") in ("user", "assistant")
-        and isinstance(item.get("content"), str)
-    ]
-    return memory
-
-
-def memory_path(name):
-    # Names are single safe path components; never allow path traversal.
-    if not name or name in (".", "..") or any(ch in name for ch in ("/", "\\", "\x00")):
-        raise ValueError("记忆名称只能是单个名称，不能包含路径分隔符。")
-    if name.casefold() in RESERVED_MEMORY_FILES:
-        raise ValueError("commands.json / commands.impl.json 是保留的命令定义文件，不能作为记忆分支。")
-    if name.lower().endswith(".json"):
-        name = name[:-5]
-    if not name or name in (".", "..") or any(ch in name for ch in ("/", "\\", "\x00")):
-        raise ValueError("无效的记忆名称。")
-    if not all(ch.isalnum() or ch in "_- ." for ch in name) or name.strip() != name or " " in name:
-        raise ValueError("名称仅允许字母、数字、下划线、连字符和句点，且不能包含空格。")
-    return MEMORIES_DIR / f"{name}.json", name
-
-
-def save_memory(memory, path):
-    memory["updated_at"] = timestamp()
-    atomic_save_json(path, memory)
-
-
-def load_memory_file(path):
-    loaded = load_json(path, default=None)
-    if loaded is None:
-        return None
-    return validate_memory(loaded, path)
-
-
-def initialize_memories():
-    MEMORIES_DIR.mkdir(parents=True, exist_ok=True)
-    default_path = MEMORIES_DIR / f"{DEFAULT_MEMORY_NAME}.json"
-    if default_path.exists():
-        # Validate existing default instead of overwriting it.
-        load_memory_file(default_path)
-    else:
-        legacy = load_json(LEGACY_MEMORY_FILE, default=None)
-        if legacy is not None:
-            # Import legacy data without modifying/deleting memory.json.
-            legacy = validate_memory(legacy, LEGACY_MEMORY_FILE)
-            legacy["version"] = 4
-            legacy.setdefault("summary", "")
-            atomic_save_json(default_path, legacy)
-        else:
-            atomic_save_json(default_path, new_memory())
-    return default_path
-
-
 def list_memories(active_path):
-    MEMORIES_DIR.mkdir(parents=True, exist_ok=True)
-    paths = sorted(
-        (p for p in MEMORIES_DIR.glob("*.json") if p.name.casefold() not in RESERVED_MEMORY_FILES),
-        key=lambda x: x.name.casefold()
-    )
+    paths = memory_store.list_memory_paths()
     print(t("available_memories"))
     if not paths:
         print(t("no_memory_files"))
@@ -260,10 +179,10 @@ def list_memories(active_path):
     for path in paths:
         mark = t("current_marker") if path.resolve() == active_path.resolve() else ""
         try:
-            data = load_memory_file(path)
+            data = memory_store.load_memory_file(path)
             count = len(data["messages"]) if data else 0
             print(t("path_stem_count_messages_mark", arg0=path.stem, count=count, mark=mark))
-        except (RuntimeError, OSError) as exc:
+        except (memory_store.MemoryFormatError, OSError) as exc:
             print(t("path_stem_cannot_read_skipped_will", arg0=path.stem, mark=mark, exc=exc))
 
 
@@ -279,38 +198,42 @@ def handle_memory_command(command, active_path, memory):
             print(t("usage_memory_add_name"))
             return active_path, memory
         try:
-            target, name = memory_path(parts[2])
+            target, name = memory_store.memory_path(parts[2])
             if target.exists():
                 # Existing file is never overwritten by add.
                 try:
-                    existing = load_memory_file(target)
+                    existing = memory_store.load_memory_file(target)
                     if existing is None:
                         print(t("failed_to_create_target_name_already", arg0=target.name))
                         return active_path, memory
-                except (RuntimeError, OSError) as exc:
+                except (memory_store.MemoryFormatError, OSError) as exc:
                     print(t("failed_to_create_exc", exc=exc))
                     return active_path, memory
                 print(t("memory_name_already_exists_and_will", name=name))
                 if ask_yes_no(t("switch_to_memory_name", name=name)):
                     return target, existing
                 return active_path, memory
-            fresh = new_memory()
+            fresh = memory_store.new_memory()
             atomic_save_json(target, fresh)
             print(t("created_and_switched_to_memory_name", name=name))
             return target, fresh
         except (ValueError, OSError) as exc:
-            print(t("failed_to_create_memory_exc", exc=exc))
+            if isinstance(exc, memory_store.MemoryNameError):
+                print(t("failed_to_create_memory_exc",
+                        exc=ui_attachments.describe_memory_name_error(exc, t)))
+            else:
+                print(t("failed_to_create_memory_exc", exc=exc))
             return active_path, memory
 
     requested = parts[1]
     try:
-        target, name = memory_path(requested)
+        target, name = memory_store.memory_path(requested)
         if not target.exists():
             print(t("unknown_memory_name_no_switch_or", name=name))
             print(t("first_use_memory_add_name_to"))
             return active_path, memory
         try:
-            loaded = load_memory_file(target)
+            loaded = memory_store.load_memory_file(target)
         except (RuntimeError, OSError) as exc:
             print(t("failed_to_switch_memory_exc", exc=exc))
             print(t("current_memory_remains_unchanged_original_file"))
@@ -321,7 +244,10 @@ def handle_memory_command(command, active_path, memory):
         print(t("switched_to_memory_name_len_loaded", name=name, arg1=len(loaded['messages'])))
         return target, loaded
     except ValueError as exc:
-        print(t("invalid_memory_name_exc", exc=exc))
+        if isinstance(exc, memory_store.MemoryNameError):
+            print(ui_attachments.describe_memory_name_error(exc, t))
+        else:
+            print(t("invalid_memory_name_exc", exc=exc))
         return active_path, memory
 
 def _count_tokens(text):
@@ -419,7 +345,7 @@ def compact_memory(config, memory, active_path, keep=RECENT_MESSAGES_AFTER_COMPA
     # The API call has already incurred usage even if the user later declines applying it.
     add_usage(memory, usage)
     try:
-        save_memory(memory, active_path)
+        memory_store.save_memory(memory, active_path)
     except OSError as exc:
         print(t("warning_failed_to_save_token_statistics", exc=exc))
 
@@ -447,7 +373,7 @@ def compact_memory(config, memory, active_path, keep=RECENT_MESSAGES_AFTER_COMPA
         atomic_save_json(archive_path, archive_data)
         memory["summary"] = summary
         memory["messages"] = memory["messages"][-keep:] if keep else []
-        save_memory(memory, active_path)
+        memory_store.save_memory(memory, active_path)
     except Exception as exc:
         print(t("failed_to_save_organization_results_type", arg0=type(exc).__name__, exc=exc))
         print(t("if_an_archive_was_created_it", archive_path=archive_path))
@@ -458,123 +384,6 @@ def compact_memory(config, memory, active_path, keep=RECENT_MESSAGES_AFTER_COMPA
     print(t("archived_history_archive_path", archive_path=archive_path))
     print(t("raw_messages_retained_len_memory_messages", arg0=len(memory['messages'])))
     print(t("summary_length_len_summary_encode_utf", arg0=len(summary.encode('utf-8'))))
-
-
-def build_endpoint(base_url):
-    base = base_url.strip().rstrip("/")
-    if base.endswith("/chat/completions"):
-        return base
-    return base + "/chat/completions"
-
-
-def ensure_library():
-    LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def resolve_library_pattern(pattern):
-    """Resolve a relative pattern inside library; reject absolute/traversal paths."""
-    pattern = pattern.strip().replace("\\", "/")
-    if not pattern:
-        raise ValueError("用法：/file NAME，例如 /file *.py")
-
-    candidate = Path(pattern)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        raise ValueError("出于安全考虑，只能读取 library/ 目录内的相对路径。")
-
-    ensure_library()
-    matches = []
-
-    # Glob across nested relative paths, but only files that remain within library.
-    if any(char in pattern for char in "*?["):
-        for path in LIBRARY_DIR.rglob("*"):
-            if not path.is_file():
-                continue
-            rel = path.relative_to(LIBRARY_DIR).as_posix()
-            if fnmatch.fnmatchcase(rel, pattern):
-                matches.append(path)
-    else:
-        path = LIBRARY_DIR / pattern
-        if path.is_file():
-            matches = [path]
-
-    safe_matches = []
-    library_root = LIBRARY_DIR.resolve()
-    for path in matches:
-        try:
-            resolved = path.resolve(strict=True)
-            resolved.relative_to(library_root)
-        except (OSError, ValueError):
-            continue
-        if resolved.is_file():
-            safe_matches.append(resolved)
-
-    # Stable ordering and deduplication.
-    return sorted(set(safe_matches), key=lambda p: str(p).lower())
-
-
-def read_attachments(pattern):
-    paths = resolve_library_pattern(pattern)
-    if not paths:
-        raise FileNotFoundError(
-            f"没有找到匹配文件：{pattern}\n"
-            f"请把文件放在 {LIBRARY_DIR} 中。"
-        )
-
-    if len(paths) > MAX_ATTACHMENTS:
-        raise ValueError(
-            f"匹配到 {len(paths)} 个文件，超过单次上限 {MAX_ATTACHMENTS} 个。"
-            "请缩小通配符范围。"
-        )
-
-    attachments = []
-    total_bytes = 0
-
-    for path in paths:
-        suffix = path.suffix.lower()
-        if suffix not in TEXT_EXTENSIONS:
-            raise ValueError(
-                f"不支持直接附加此文件类型：{path.name}\n"
-                "当前版本支持文本和源代码文件，不支持图片、PDF、ZIP 等二进制文件。"
-            )
-
-        size = path.stat().st_size
-        if size > MAX_FILE_BYTES:
-            raise ValueError(
-                f"{path.name} 大小为 {size} 字节，超过单文件上限 "
-                f"{MAX_FILE_BYTES} 字节。"
-            )
-
-        total_bytes += size
-        if total_bytes > MAX_TOTAL_ATTACHMENT_BYTES:
-            raise ValueError(
-                f"附件总大小超过 {MAX_TOTAL_ATTACHMENT_BYTES} 字节上限。"
-            )
-
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError(
-                f"{path.name} 不是有效的 UTF-8 文本文件；请先转换编码。"
-            ) from exc
-
-        relative_name = path.relative_to(LIBRARY_DIR.resolve()).as_posix()
-        attachments.append((relative_name, text))
-
-    return attachments, total_bytes
-
-
-def format_attachment_message(user_text, attachments):
-    parts = []
-    if user_text.strip():
-        parts.append(user_text.strip())
-    else:
-        parts.append("请阅读并分析以下附件。")
-
-    parts.append("\n--- 附件开始 ---")
-    for name, text in attachments:
-        parts.append(f'\n[文件名：{name}]\n```text\n{text}\n```')
-    parts.append("\n--- 附件结束 ---")
-    return "\n".join(parts)
 
 
 def load_command_definitions():
@@ -1135,8 +944,8 @@ def main(lang=None):
             stored = config.get("language")
             if isinstance(stored, str) and stored in SUPPORTED_LANGS and stored != t.lang:
                 t = Translator(stored)
-        active_memory_path = initialize_memories()
-        memory = load_memory_file(active_memory_path)
+        active_memory_path = memory_store.initialize_memories()
+        memory = memory_store.load_memory_file(active_memory_path)
         if memory is None:
             raise RuntimeError("默认记忆文件为空，未继续启动以避免覆盖数据。")
         ensure_library()
@@ -1246,8 +1055,8 @@ def main(lang=None):
                     print(t("attachments_are_ready_now_input_what"))
                 else:
                     print(t("cancelled_no_files_sent"))
-            except (ValueError, FileNotFoundError, OSError) as exc:
-                print(t("failed_to_read_attachments_exc", exc=exc))
+            except (AttachmentError, AttachmentNotFound, OSError) as exc:
+                print(ui_attachments.describe_attachment_error(exc, t, LIBRARY_DIR))
             continue
 
         if user_text == "/clear":
@@ -1260,7 +1069,7 @@ def main(lang=None):
                     "total_tokens": 0,
                     "requests": 0,
                 }
-                save_memory(memory, active_memory_path)
+                memory_store.save_memory(memory, active_memory_path)
                 pending_attachments.clear()
                 print(t("chat_history_cumulative_usage_and_pending"))
             else:
@@ -1273,7 +1082,7 @@ def main(lang=None):
             new_prompt = input(t("enter_a_new_system_prompt_press")).strip()
             if new_prompt:
                 memory["system_prompt"] = new_prompt
-                save_memory(memory, active_memory_path)
+                memory_store.save_memory(memory, active_memory_path)
                 print(t("system_prompt_has_been_saved"))
             continue
 
@@ -1284,7 +1093,7 @@ def main(lang=None):
         # Store exactly what is sent, including attachment contents, in local history.
         memory["messages"].append({"role": "user", "content": outgoing_text})
         try:
-            save_memory(memory, active_memory_path)
+            memory_store.save_memory(memory, active_memory_path)
         except OSError as exc:
             print(t("warning_failed_to_save_user_message", exc=exc))
 
@@ -1298,7 +1107,7 @@ def main(lang=None):
             memory["messages"].append({"role": "assistant", "content": answer})
             add_usage(memory, usage)
             try:
-                save_memory(memory, active_memory_path)
+                memory_store.save_memory(memory, active_memory_path)
             except OSError as exc:
                 print(t("warning_failed_to_save_ai_reply", exc=exc))
 

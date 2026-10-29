@@ -155,5 +155,18 @@
   "wizard_step_language": "\n[1/3] Choose a UI language:",
   "wizard_step_model": "\n[3/3] Choose the default model:",
   "wizard_title": "\n=== First-time setup ===",
-  "you": "\nYou: "
+  "you": "\nYou: ",
+  "attach_error_usage": "Usage: /file NAME, e.g., /file *.py",
+  "attach_error_outside_library": "For safety, only relative paths inside library/ can be read.",
+  "attach_error_no_match": "No files matched: {pattern}\nPut the file in {library_dir}.",
+  "attach_error_too_many": "{count} files matched, over the per-request limit of {limit}. Narrow the pattern.",
+  "attach_error_unsupported_type": "This file type cannot be attached: {name}\nText and source files are supported; images, PDFs and ZIPs are not.",
+  "attach_error_file_too_large": "{name} is {size} bytes, over the per-file limit of {limit} bytes.",
+  "attach_error_total_too_large": "Attachment total exceeds the {limit} byte limit.",
+  "attach_error_not_utf8": "{name} is not valid UTF-8 text; convert the encoding first.",
+  "attach_error_unknown": "Could not read attachments ({reason}).",
+  "memory_name_error_separator": "A memory name must be a single name and cannot contain path separators.",
+  "memory_name_error_reserved": "commands.json / commands.impl.json are reserved command definition files and cannot be used as memory branches.",
+  "memory_name_error_characters": "Names may only contain letters, digits, underscores, hyphens and dots, with no spaces.",
+  "memory_name_error_invalid": "Invalid memory name."
 }
