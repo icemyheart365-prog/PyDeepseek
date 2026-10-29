@@ -27,18 +27,15 @@ Layout:
   memories/commands.json (prompt-visible command contract, reloaded for every API request)
   memories/commands.impl.json (implementation details, never sent to the model)
   memory.json (legacy file, imported into default.json if needed)
-  library/    (place text/code files here for /file attachments)
+  library/    (working area for tool calls; the model reads files here via cat/head/grep)
 
 Commands:
-  /file NAME       Attach file(s) from library/ to the next message.
-                   Wildcards are supported, e.g. /file *.py
   /files           List files in library/
   /memory          List/select memory profiles
   /memory add NAME Create and switch to a new memory profile
   /memory NAME     Switch to an existing memory profile
   /memory compact  Ask AI to summarize history; confirm before applying
   /pwd             Show current memory branch and file path
-  /cancel          Cancel pending attachments
   /clear           Clear chat history after confirmation
   /stats           Show cumulative token usage
   /system          View/change the system prompt
@@ -48,7 +45,7 @@ Commands:
 """
 
 from ui import common as ui_common
-from ui import attachments_ui as ui_attachments
+from ui import memory_ui
 
 
 def ask_yes_no(action):
@@ -96,17 +93,6 @@ import models
 import wizard
 # Aliased because 'memory' is a ubiquitous local variable name in this module.
 import memory as memory_store
-from attachments import (
-    ATTACHMENT_CLOSE,
-    ATTACHMENT_DEFAULT_INSTRUCTION,
-    ATTACHMENT_FILE_HEADER,
-    ATTACHMENT_OPEN,
-    AttachmentError,
-    AttachmentNotFound,
-    format_attachment_message,
-    read_attachments,
-    resolve_library_pattern,
-)
 from config import (
     DEFAULT_BASE_URL,
     PLACEHOLDER_KEYS,
@@ -146,9 +132,6 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 MAX_HISTORY_MESSAGES = 10
 RECENT_MESSAGES_AFTER_COMPACT = 10
 REQUEST_TIMEOUT = 120
-MAX_ATTACHMENTS = 10
-MAX_FILE_BYTES = 128 * 1024
-MAX_TOTAL_ATTACHMENT_BYTES = 512 * 1024
 MAX_TOOL_ROUNDS = 8
 MAX_PROTOCOL_REPAIRS = 1
 
@@ -157,13 +140,6 @@ MANUAL_MODEL_INDEX = models.MANUAL_MODEL_INDEX
 MANUAL_MODEL_SENTINEL = models.MANUAL_MODEL_SENTINEL
 EXIT_SETTINGS_INDEX = "0"
 MAX_TOOL_LOG_LINES = 5000
-TEXT_EXTENSIONS = {
-    ".txt", ".md", ".py", ".json", ".yaml", ".yml", ".toml", ".ini",
-    ".cfg", ".csv", ".tsv", ".xml", ".html", ".htm", ".css", ".js",
-    ".ts", ".jsx", ".tsx", ".java", ".kt", ".kts", ".c", ".h", ".cpp",
-    ".hpp", ".rs", ".go", ".rb", ".php", ".sh", ".bash", ".ps1",
-    ".bat", ".sql", ".log", ".properties", ".gradle", ".gradle.kts",
-}
 
 
 def timestamp():
@@ -220,7 +196,7 @@ def handle_memory_command(command, active_path, memory):
         except (ValueError, OSError) as exc:
             if isinstance(exc, memory_store.MemoryNameError):
                 print(t("failed_to_create_memory_exc",
-                        exc=ui_attachments.describe_memory_name_error(exc, t)))
+                        exc=memory_ui.describe_memory_name_error(exc, t)))
             else:
                 print(t("failed_to_create_memory_exc", exc=exc))
             return active_path, memory
@@ -245,7 +221,7 @@ def handle_memory_command(command, active_path, memory):
         return target, loaded
     except ValueError as exc:
         if isinstance(exc, memory_store.MemoryNameError):
-            print(ui_attachments.describe_memory_name_error(exc, t))
+            print(memory_ui.describe_memory_name_error(exc, t))
         else:
             print(t("invalid_memory_name_exc", exc=exc))
         return active_path, memory
@@ -961,8 +937,6 @@ def main(lang=None):
         print(t("startup_failed_exc", exc=exc), file=sys.stderr)
         return 1
 
-    pending_attachments = []
-
     print("=" * 48)
     print(t("deepseek_local_memory_chat_v10"))
     print(t("model_config_model", arg0=config['model']))
@@ -1032,33 +1006,6 @@ def main(lang=None):
             )
             continue
 
-        if user_text == "/cancel":
-            pending_attachments.clear()
-            print(t("cancelled_pending_attachments"))
-            continue
-
-        if user_text.startswith("/file"):
-            parts = user_text.split(maxsplit=1)
-            if len(parts) != 2:
-                print(t("usage_file_name_e_g_file"))
-                continue
-
-            pattern = parts[1]
-            try:
-                attachments, total_bytes = read_attachments(pattern)
-                print(t("matching_attachments"))
-                for name, text in attachments:
-                    print(t("name_len_text_encode_utf_8", name=name, arg1=len(text.encode('utf-8'))))
-                print(t("total_len_attachments_files_total_bytes", arg0=len(attachments), total_bytes=total_bytes))
-                if ask_yes_no(t("attach_these_files_to_the_next")):
-                    pending_attachments = attachments
-                    print(t("attachments_are_ready_now_input_what"))
-                else:
-                    print(t("cancelled_no_files_sent"))
-            except (AttachmentError, AttachmentNotFound, OSError) as exc:
-                print(ui_attachments.describe_attachment_error(exc, t, LIBRARY_DIR))
-            continue
-
         if user_text == "/clear":
             if ask_yes_no(t("clear_local_chat_history_cumulative_usage")):
                 memory["messages"] = []
@@ -1070,8 +1017,7 @@ def main(lang=None):
                     "requests": 0,
                 }
                 memory_store.save_memory(memory, active_memory_path)
-                pending_attachments.clear()
-                print(t("chat_history_cumulative_usage_and_pending"))
+                print(t("clear_done"))
             else:
                 print(t("cancelled_no_changes_made"))
             continue
@@ -1086,23 +1032,15 @@ def main(lang=None):
                 print(t("system_prompt_has_been_saved"))
             continue
 
-        outgoing_text = user_text
-        if pending_attachments:
-            outgoing_text = format_attachment_message(user_text, pending_attachments)
-
-        # Store exactly what is sent, including attachment contents, in local history.
-        memory["messages"].append({"role": "user", "content": outgoing_text})
+        memory["messages"].append({"role": "user", "content": user_text})
         try:
             memory_store.save_memory(memory, active_memory_path)
         except OSError as exc:
             print(t("warning_failed_to_save_user_message", exc=exc))
 
-        # Attachments are consumed by this message only.
-        pending_attachments = []
-
         print(t("ai"), end=t("text"), flush=True)
         try:
-            answer, usage = call_api(config, memory, outgoing_text)
+            answer, usage = call_api(config, memory, user_text)
             print(answer)
             memory["messages"].append({"role": "assistant", "content": answer})
             add_usage(memory, usage)
