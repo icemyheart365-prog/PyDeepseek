@@ -148,14 +148,154 @@ def atomic_save_json(path, data):
     os.replace(temp_path, path)
 
 
+DEFAULT_BASE_URL = "https://api.deepseek.com"
+
+# Values that look filled-in but are still templates.
+PLACEHOLDER_KEYS = {"INPUT_YOUR_API_KEY_HERE", "YOUR_API_KEY", "sk-xxx"}
+
+
+def validate_config(config):
+    """Return (ok, problem) without raising; used by the wizard and startup."""
+    if not isinstance(config, dict):
+        return False, "top_level"
+    for key in ("api_key", "base_url", "model"):
+        value = config.get(key)
+        if not isinstance(value, str) or not value.strip():
+            return False, key
+    if config["api_key"].strip().upper() in {p.upper() for p in PLACEHOLDER_KEYS}:
+        return False, "api_key"
+    if not config["api_key"].strip().startswith("sk-"):
+        return False, "api_key"
+    return True, None
+
+
 def load_config():
     config = load_json(CONFIG_FILE)
-    if not isinstance(config, dict):
-        raise RuntimeError("config.json 必须是 JSON 对象。")
-    for key in ("api_key", "base_url", "model"):
-        if not isinstance(config.get(key), str) or not config[key].strip():
-            raise RuntimeError(f"config.json 缺少有效的 {key} 字段。")
+    ok, problem = validate_config(config)
+    if not ok:
+        if problem == "top_level":
+            raise RuntimeError("config.json 必须是 JSON 对象。")
+        raise RuntimeError(f"config.json 缺少有效的 {problem} 字段。")
     return config
+
+
+def verify_api_key(api_key, base_url):
+    """Send a minimal request; return (ok, reason).
+
+    A one-token completion is the cheapest way to prove the key, the endpoint and
+    the network all work before persisting anything.
+    """
+    payload = {
+        "model": KNOWN_MODELS[0],
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "stream": False,
+    }
+    request = urllib.request.Request(
+        build_endpoint(base_url),
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            response.read()
+        return True, None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:200]
+        return False, f"HTTP {exc.code}: {detail}"
+    except urllib.error.URLError as exc:
+        return False, f"network error: {exc.reason}"
+    except (OSError, ValueError) as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _ask_language():
+    """Wizard step 1: pick the UI language before printing anything else."""
+    codes = list(SUPPORTED_LANGS)
+    entries = list(enumerate(codes, start=1))
+    # Labels are language-neutral at this point, so show the native names directly.
+    native = {"zh_cn": "中文", "en_ca": "English"}
+    labels = [(index, native.get(code, code)) for index, code in entries]
+    for index, label in labels:
+        print(f"  [{index}] {label}")
+    raw = input("> ").strip() or "2"
+    for index, code in entries:
+        if str(index) == raw:
+            return code
+    return DEFAULT_LANG
+
+
+def _ask_api_key():
+    """Wizard step 2: collect and verify a key, retrying on failure."""
+    print("\n" + t("wizard_key_hint"))
+    print(t("wizard_key_warning"))
+    while True:
+        key = input(t("wizard_key_prompt")).strip()
+        if not key:
+            return None
+        if not key.startswith("sk-"):
+            print(t("wizard_key_bad_prefix"))
+            continue
+
+        print(t("wizard_key_verifying"))
+        ok, reason = verify_api_key(key, DEFAULT_BASE_URL)
+        if ok:
+            print(t("wizard_key_ok"))
+            return key
+        print(t("wizard_key_invalid", reason=reason))
+        if not ask_yes_no(t("wizard_key_retry")):
+            return None
+
+
+def _ask_model():
+    """Wizard step 3: choose from known models."""
+    entries = list(enumerate(KNOWN_MODELS, start=1))
+    labels = [(index, model) for index, model in entries]
+    for index, model in labels:
+        print(f"  [{index}] {model}")
+    raw = input("> ").strip() or "1"
+    for index, model in entries:
+        if str(index) == raw:
+            return model
+    return KNOWN_MODELS[0]
+
+
+def run_setup_wizard():
+    """Interactive first-run setup. Returns config on success, None on cancel."""
+    global t
+    print(t("wizard_title"))
+    print(t("wizard_intro"))
+
+    print(t("wizard_step_language"))
+    lang = _ask_language()
+    t = Translator(lang)
+    print(f"  -> {t(f'language_name_{lang}')}")
+
+    print(t("wizard_step_key"))
+    api_key = _ask_api_key()
+    if not api_key:
+        print(t("wizard_key_empty"))
+        return None
+
+    print(t("wizard_step_model"))
+    model = _ask_model()
+
+    config = {
+        "api_key": api_key,
+        "base_url": DEFAULT_BASE_URL,
+        "model": model,
+        "language": lang,
+    }
+    try:
+        atomic_save_json(CONFIG_FILE, config)
+    except OSError as exc:
+        print(t("wizard_save_failed", exc=exc))
+        return None
+
+    print(t("wizard_done"))
+    return config
+
 
 
 def new_memory():
@@ -1125,7 +1265,17 @@ def main(lang=None):
     MAX_HISTORY_MESSAGES = args.max_history
 
     try:
-        config = load_config()
+        # First run (no config.json, or a placeholder key) enters the setup wizard
+        # instead of failing with a raw error.
+        existing = load_json(CONFIG_FILE)
+        ok, _problem = validate_config(existing)
+        if not ok:
+            config = run_setup_wizard()
+            if config is None:
+                return 1
+        else:
+            config = existing
+
         # Language precedence: --lang flag, then the persisted config.json value,
         # then the entry script default.
         if not args.lang:
