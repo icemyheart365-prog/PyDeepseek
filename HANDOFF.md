@@ -317,3 +317,5 @@ $env:DEEPSEEK_BRIDGE = "powershell"    # 默认 python
 ## 10. 一句话总结
 
 这是一个**把模型当成不可信 JSON 生成器**的本地 Agent：所有能力通过白名单命令暴露，所有参数严格校验，所有副作用需用户确认。省 token 是靠**把实现细节从 prompt 里拿出去**，而不是削弱安全。
+
+<!-- sync test marker -->
