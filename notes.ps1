@@ -115,6 +115,16 @@ switch ($Action) {
 
         $original = Enter-Notes
         try {
+            # Refuse to build on a stale branch: if origin moved ahead, the push
+            # would fail as non-fast-forward and the local edit could be lost.
+            Invoke-Git fetch origin $NotesBranch | Out-Null
+            $behind = (& git rev-list --count "HEAD..origin/${NotesBranch}").Trim()
+            if ($behind -ne '0') {
+                Write-Host "Refusing to push: origin/$NotesBranch has $behind commit(s) you do not have." -ForegroundColor Yellow
+                Write-Host "  Run '.\notes.ps1 pull' first, merge by hand, then push." -ForegroundColor Yellow
+                return
+            }
+
             Copy-Item $backup $NotesFile -Force
             Invoke-Git add -f $NotesFile | Out-Null
             $staged = (& git diff --cached --name-only)
