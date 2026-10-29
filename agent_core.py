@@ -71,6 +71,8 @@ from tokenizer import token_counter, try_load_token_counter as _try_load_token_c
 
 from translator import Translator, check_parity, SUPPORTED_LANGS, DEFAULT_LANG
 
+import models
+
 _TOKEN_COUNTER = _try_load_token_counter()
 
 # Rebound by main(); module-level so every helper can render UI strings.
@@ -97,20 +99,10 @@ MAX_TOTAL_ATTACHMENT_BYTES = 512 * 1024
 MAX_TOOL_ROUNDS = 8
 MAX_PROTOCOL_REPAIRS = 1
 
-# Models offered by /settings. Slots 1-8 are reserved for presets so the manual
-# entry row can stay pinned at 9 as the list grows.
-KNOWN_MODELS = ("deepseek-flash", "deepseek-v4-pro")
-MANUAL_MODEL_INDEX = 9
-PRESET_MODEL_SLOTS = MANUAL_MODEL_INDEX - 1
-MANUAL_MODEL_SENTINEL = "__manual__"
+# Models offered by /settings live in models.py (single source of truth).
+MANUAL_MODEL_INDEX = models.MANUAL_MODEL_INDEX
+MANUAL_MODEL_SENTINEL = models.MANUAL_MODEL_SENTINEL
 EXIT_SETTINGS_INDEX = "0"
-
-if len(KNOWN_MODELS) > PRESET_MODEL_SLOTS:
-    raise RuntimeError(
-        f"KNOWN_MODELS has {len(KNOWN_MODELS)} entries but only {PRESET_MODEL_SLOTS} slots "
-        f"are available before the manual entry at {MANUAL_MODEL_INDEX}. "
-        "Raise MANUAL_MODEL_INDEX or remove a preset."
-    )
 MAX_TOOL_LOG_LINES = 5000
 TOOL_LOG_DIR = LIBRARY_DIR / "logs"
 TOOL_LOG_FILE = TOOL_LOG_DIR / "tool_calls.jsonl"
@@ -186,7 +178,7 @@ def verify_api_key(api_key, base_url):
     the network all work before persisting anything.
     """
     payload = {
-        "model": KNOWN_MODELS[0],
+        "model": models.DEFAULT_MODEL,
         "messages": [{"role": "user", "content": "hi"}],
         "max_tokens": 1,
         "stream": False,
@@ -262,15 +254,10 @@ def _ask_api_key():
 
 def _ask_model():
     """Wizard step 3: choose from known models."""
-    entries = list(enumerate(KNOWN_MODELS, start=1))
-    labels = [(index, model) for index, model in entries]
-    for index, model in labels:
+    for index, model in models.preset_entries():
         print(f"  [{index}] {model}")
     raw = input("> ").strip() or "1"
-    for index, model in entries:
-        if str(index) == raw:
-            return model
-    return KNOWN_MODELS[0]
+    return models.resolve_preset(raw)
 
 
 def run_setup_wizard():
@@ -1167,13 +1154,7 @@ def _apply_language(config):
 
 def _apply_model(config):
     """Ask for a model; persist the choice for future sessions."""
-    entries = list(enumerate(KNOWN_MODELS, start=1))
-    entries.append((MANUAL_MODEL_INDEX, MANUAL_MODEL_SENTINEL))
-    labels = []
-    for index, model in entries[:-1]:
-        marker = " *" if model == config.get("model") else ""
-        labels.append((index, t("settings_model_option", model=model) + marker))
-    labels.append((MANUAL_MODEL_INDEX, t("settings_manual_option")))
+    entries, labels = models.settings_menu(t, config.get("model"))
 
     print(t("settings_model_title"))
     chosen = _menu_entries(entries, labels)
